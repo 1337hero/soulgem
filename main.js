@@ -251,13 +251,15 @@ spinBtn.addEventListener('click', e => {
 })
 
 const look = { yaw: 0, pitch: 0 }
+// live-tunable via console: viewer.gaze.pitchBias = -0.08 (negative = aim higher)
+const gaze = { yawMax: 0.7, pitchMax: 0.35, pitchBias: -0.06 }
 const timer = new THREE.Timer()
 const _pq = new THREE.Quaternion()
 const _target = new THREE.Quaternion()
 const _e = new THREE.Euler()
 
 window.THREE = THREE  // console/scene experiments
-window.viewer = { camera, controls, scene, renderer, setMorph, playIdle, playGesture, setScene,
+window.viewer = { camera, controls, scene, renderer, setMorph, playIdle, playGesture, setScene, gaze,
   get head() { return head }, get clips() { return clips } }
 
 renderer.setAnimationLoop(() => {
@@ -284,9 +286,9 @@ renderer.setAnimationLoop(() => {
       const dy = camera.position.y - _headPos.y
       const dz = camera.position.z - _headPos.z
       const yawT = Math.atan2(dx, dz)
-      const pitchT = -Math.atan2(dy, Math.hypot(dx, dz))
-      look.yaw += (THREE.MathUtils.clamp(yawT, -0.6, 0.6) - look.yaw) * k
-      look.pitch += (THREE.MathUtils.clamp(pitchT, -0.35, 0.35) - look.pitch) * k
+      const pitchT = -Math.atan2(dy, Math.hypot(dx, dz)) + gaze.pitchBias
+      look.yaw += (THREE.MathUtils.clamp(yawT, -gaze.yawMax, gaze.yawMax) - look.yaw) * k
+      look.pitch += (THREE.MathUtils.clamp(pitchT, -gaze.pitchMax, gaze.pitchMax) - look.pitch) * k
       _e.set(look.pitch + Math.sin(t * 0.47) * 0.01,
              look.yaw + Math.sin(t * 0.31) * 0.015 + Math.sin(t * 0.73) * 0.01, 0)
       headBone.parent.getWorldQuaternion(_pq)
