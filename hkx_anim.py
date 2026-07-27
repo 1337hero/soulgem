@@ -81,6 +81,15 @@ def load_hkx(path):
         'track_names': [(t.text or '').strip() for t in anim.iter('hkparam')
                         if t.get('name') == 'trackName'],
     }
+    # Vanilla-game animations ship EMPTY track names (only loose re-exports like
+    # PFI carry them). Tracks then follow vanilla skeleton bone order — identity
+    # mapping, saved once from the BSA skeleton_female.hkx (99 bones).
+    if not any(info['track_names']):
+        order_file = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  'anims', 'skeleton_track_order.json')
+        with open(order_file) as fh:
+            order = json.load(fh)
+        info['track_names'] = order[:info['num_tracks']]
     return info
 
 
@@ -310,7 +319,8 @@ def decode(path):
 def reindex(outdir):
     """Rewrite <outdir>/index.json from the clip JSONs actually on disk."""
     names = sorted(f[:-5] for f in os.listdir(outdir)
-                   if f.endswith('.json') and f != 'index.json')
+                   if f.endswith('.json')
+                   and f not in ('index.json', 'skeleton_track_order.json'))
     with open(os.path.join(outdir, 'index.json'), 'w') as fh:
         json.dump(names, fh)
     return names

@@ -117,9 +117,9 @@ async function loadAnims() {
       }))
     } catch { return }
   }
-  clipNames = Object.keys(clips)
+  clipNames = Object.keys(clips).filter(n => !n.startsWith('gesture_'))  // idle pool
   if (clipNames.length) {
-    cur = { clip: clips[clipNames[0]], t: 0 }
+    cur = { clip: clips[clipNames[0]], t: 0, name: clipNames[0] }
     scheduleSwitch()
   }
 }
@@ -133,7 +133,16 @@ function playIdle(name) {
   if (!clips[name] || (cur && clips[name] === cur.clip)) return
   prev = cur
   fade = 0
-  cur = { clip: clips[name], t: 0 }
+  cur = { clip: clips[name], t: 0, name }
+}
+
+// one-shot gesture: crossfade in, play once, crossfade back to the idle
+let gestureReturn = null
+
+function playGesture(name) {
+  if (!clips[name] || gestureReturn) return
+  gestureReturn = cur?.name ?? clipNames[0]
+  playIdle(name)
 }
 
 const _qa = new THREE.Quaternion()
@@ -166,7 +175,12 @@ function sampleInto(state, dt, weight) {
 
 function updateIdle(dt, t) {
   if (!cur) return false
-  if (t >= switchAt && clipNames.length > 1) {
+  if (gestureReturn && cur.t + dt >= cur.clip.duration - Math.min(FADE_DUR, cur.clip.duration / 3)) {
+    const back = gestureReturn
+    gestureReturn = null
+    playIdle(back)
+  }
+  if (t >= switchAt && clipNames.length > 1 && !gestureReturn) {
     const others = clipNames.filter(n => clips[n] !== cur.clip)
     playIdle(others[Math.floor(Math.random() * others.length)])
     scheduleSwitch()
@@ -183,11 +197,7 @@ function updateIdle(dt, t) {
 }
 
 // ---- procedural life ----
-const mouse = { x: 0, y: -0.1 }
-window.addEventListener('pointermove', e => {
-  mouse.x = (e.clientX / innerWidth) * 2 - 1
-  mouse.y = (e.clientY / innerHeight) * 2 - 1
-})
+const _headPos = new THREE.Vector3()
 
 let blinkAt = 2.0     // next blink time
 let blinkT = -1       // progress through current blink, -1 = idle
@@ -213,7 +223,7 @@ const _pq = new THREE.Quaternion()
 const _target = new THREE.Quaternion()
 const _e = new THREE.Euler()
 
-window.viewer = { camera, controls, scene, renderer, setMorph, playIdle,
+window.viewer = { camera, controls, scene, renderer, setMorph, playIdle, playGesture,
   get head() { return head }, get clips() { return clips } }
 
 renderer.setAnimationLoop(() => {
@@ -232,11 +242,17 @@ renderer.setAnimationLoop(() => {
       _e.set(Math.sin(t * 1.5) * 0.010, 0, 0)
       spineBone.quaternion.copy(spineBindQ).multiply(_target.setFromEuler(_e))
     }
-    // look-at cursor layered over the animated (or bind) head pose
+    // look-at camera (eye contact with the viewer) layered over the head pose
     if (headBone && !spin) {
       const k = 1 - Math.exp(-dt * 6)
-      look.yaw += (THREE.MathUtils.clamp(mouse.x * 0.55, -0.6, 0.6) - look.yaw) * k
-      look.pitch += (THREE.MathUtils.clamp(mouse.y * 0.30, -0.35, 0.35) - look.pitch) * k
+      headBone.getWorldPosition(_headPos)
+      const dx = camera.position.x - _headPos.x
+      const dy = camera.position.y - _headPos.y
+      const dz = camera.position.z - _headPos.z
+      const yawT = Math.atan2(dx, dz)
+      const pitchT = -Math.atan2(dy, Math.hypot(dx, dz))
+      look.yaw += (THREE.MathUtils.clamp(yawT, -0.6, 0.6) - look.yaw) * k
+      look.pitch += (THREE.MathUtils.clamp(pitchT, -0.35, 0.35) - look.pitch) * k
       _e.set(look.pitch + Math.sin(t * 0.47) * 0.01,
              look.yaw + Math.sin(t * 0.31) * 0.015 + Math.sin(t * 0.73) * 0.01, 0)
       headBone.parent.getWorldQuaternion(_pq)
@@ -366,6 +382,8 @@ async function playNext() {
     if (msg.gesture === 'idle_switch' && clipNames.length > 1) {
       const others = clipNames.filter(n => clips[n] !== cur?.clip)
       playIdle(others[Math.floor(Math.random() * others.length)])
+    } else if (msg.gesture && msg.gesture !== 'none' && clips['gesture_' + msg.gesture]) {
+      playGesture('gesture_' + msg.gesture)
     }
   } else {
     captionEl.innerHTML += ' ' + msg.sentence

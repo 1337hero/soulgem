@@ -29,12 +29,15 @@ export const REPLY_SCHEMA = {
         MOOD_KEYS.map(k => [k, { type: 'number', minimum: 0, maximum: 0.7 }])),
       additionalProperties: false,
     },
-    gesture: { enum: ['none', 'idle_switch'] },
+    gesture: { enum: ['none', 'idle_switch', 'wave', 'salute', 'laugh', 'applaud', 'point'] },
     reply: { type: 'string' },
     meter_delta: { type: 'integer', minimum: -14, maximum: 10 },
     memory_note: { type: ['string', 'null'] },
   },
-  required: ['emotion', 'reply'],
+  // ALL fields required: llama.cpp's grammar only pins the order of required
+  // properties — optional ones float, and a gesture emitted after `reply`
+  // never reaches the streamed metadata. Required = strict declaration order.
+  required: ['emotion', 'mood', 'gesture', 'reply', 'meter_delta', 'memory_note'],
   additionalProperties: false,
 }
 
@@ -54,7 +57,12 @@ export const EMOTION_MOOD: Record<string, Record<string, number>> = {
 const FIELD_DOCS: Record<string, string> = {
   emotion: '',
   mood: `object with optional keys ${MOOD_KEYS.join(', ')} — values 0.0-0.7\n  (subtle facial expression while speaking; usually just one key, often none)`,
-  gesture: 'idle_switch shifts her stance; more gestures come later',
+  gesture: `a one-shot emote played while you speak. Pick one whenever your
+  words act it out: greeting or farewell -> wave, accepting an order or duty ->
+  salute, genuine laughter -> laugh, impressed by a feat -> applaud, drawing
+  attention to something -> point. Plain conversation -> none; idle_switch
+  just shifts your stance. If the Thane asks you to wave, salute, bow, laugh,
+  clap, or point, you ALWAYS perform that gesture this turn.`,
   reply: 'what you say aloud (plain speech, no stage directions)',
   meter_delta: `how this exchange moved your regard for the Thane. 0 for most
   turns. Small positives (+1..+4) for genuine warmth, thoughtfulness, shared
