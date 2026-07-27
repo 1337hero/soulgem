@@ -1,0 +1,6 @@
+{
+  "model": "Gemma4-12B",
+  "chat_template_kwargs": { "enable_thinking": false },
+  "glb": "lydia.glb",
+  "meter": true
+}

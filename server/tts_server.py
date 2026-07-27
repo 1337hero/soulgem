@@ -19,7 +19,8 @@ import soundfile as sf
 
 PORT = int(os.environ.get('TTS_PORT', 8123))
 MODEL_NAME = os.environ.get('TTS_MODEL', 'Qwen/Qwen3-TTS-12Hz-0.6B-Base')
-REF_AUDIO = os.path.expanduser('~/Experiments/voice/qwen-tts-env/voice_ref_60s.wav')
+REF_AUDIO = os.path.expanduser(
+    os.environ.get('TTS_REF') or '~/Experiments/voice/qwen-tts-env/voice_ref_60s.wav')
 
 os.environ.setdefault('HIP_VISIBLE_DEVICES', '2')
 # Every novel sentence length is a new tensor shape; default MIOpen find mode

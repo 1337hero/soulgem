@@ -17,8 +17,18 @@ Prerequisites (all machine-local, paths hardcoded in `server/run.sh` /
 - Qwen3-TTS venv at `~/Experiments/voice/qwen-tts-env` (torch ROCm, bf16)
 
 ```sh
-bun start          # whisper :8124 + TTS :8123 + orchestrator :8471
+bun start               # whisper :8124 + TTS :8123 + orchestrator :8471
+SOUL=example bun start  # pick a different soul (default: lydia)
 ```
+
+## Souls
+
+A soul is a directory under `souls/<name>/`: `persona.md` (character sheet),
+`config.json` (LLM model + reasoning kwargs, `voice_ref` wav for the TTS
+clone, `glb` body, `meter` on/off), and `memory/` (that soul's durable
+memories + relationship meter). Copy `souls/example/` (Aster, a lighthouse
+librarian) to start your own. Everything under `souls/` except the example is
+gitignored — souls are personal.
 
 Wait for `warmed up` in the output (~60–90s: TTS model load + warmup gen),
 then open **http://localhost:8471**. Hold the talk button or the `T` key to
@@ -45,8 +55,7 @@ model (~10s).
 | `server/reply_stream.ts` | pure streaming-JSON reply parser (`bun test server/`) |
 | `server/stages.js` | transcribe / synthesize / lipSync adapters (whisper, Qwen3-TTS, Rhubarb) |
 | `server/tts_server.py` | Qwen3-TTS 0.6B bf16 + cloned Lydia voice, ROCm (`MIOPEN_FIND_MODE=FAST` is load-bearing) |
-| `persona/lydia.md` | character sheet (output format is generated, not written here) |
-| `memory/` | durable state: `user.jsonl` facts + `state.json` meter |
+| `souls/<name>/` | soul pack: persona + config + voice ref + per-soul memory |
 | `main.js` | three.js client: viewer, idle anims, viseme lipsync, WS voice loop |
 | `COMPANION-PLAN.md` | phase plan + status; `HANDOFF.md` — current working state |
 

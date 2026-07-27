@@ -10,12 +10,19 @@ import { Store, tierOf } from './store.ts'
 const ROOT = dirname(import.meta.dir)  // project root
 const PORT = 8471
 const LLM_URL = 'http://127.0.0.1:8082/v1/chat/completions'
-const LLM_MODEL = 'Gemma4-12B'
 
-const PERSONA = await Bun.file(join(ROOT, 'persona/lydia.md')).text()
+// ---- soul pack: persona + config + memory namespace (SOUL env selects) ----
+const SOUL = Bun.env.SOUL ?? 'lydia'
+const SOUL_DIR = join(ROOT, 'souls', SOUL)
+if (!(await Bun.file(join(SOUL_DIR, 'persona.md')).exists())) {
+  console.error(`no such soul: souls/${SOUL}/ (try SOUL=example)`)
+  process.exit(1)
+}
+const CFG = await Bun.file(join(SOUL_DIR, 'config.json')).json()
+const PERSONA = await Bun.file(join(SOUL_DIR, 'persona.md')).text()
+const BODY_GLB = join(ROOT, CFG.glb ?? 'lydia.glb')
 
-// ---- durable state: memory + relationship meter (P4) ----
-const store = new Store(join(ROOT, 'memory'))
+const store = new Store(join(SOUL_DIR, 'memory'), { meter: CFG.meter !== false })
 
 const systemPrompt = () => PERSONA + '\n' + outputFormatDoc() + store.promptSection()
 
@@ -41,12 +48,12 @@ async function* thinkStream(userText, token, history) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: LLM_MODEL,
+      model: CFG.model,
       messages: [{ role: 'system', content: systemPrompt() }, ...history.slice(-24)],
       temperature: 0.8,
       max_tokens: 400,
       stream: true,
-      chat_template_kwargs: { enable_thinking: false },
+      chat_template_kwargs: CFG.chat_template_kwargs ?? {},
       response_format: {
         type: 'json_schema',
         json_schema: { name: 'lydia_reply', schema: REPLY_SCHEMA },
@@ -139,7 +146,7 @@ Bun.serve({
         ? undefined : new Response('upgrade failed', { status: 400 })
     }
     let path = url.pathname === '/' ? '/index.html' : url.pathname
-    const file = Bun.file(join(ROOT, path.slice(1)))
+    const file = path === '/body.glb' ? Bun.file(BODY_GLB) : Bun.file(join(ROOT, path.slice(1)))
     if (!(await file.exists())) return new Response('not found', { status: 404 })
     const ext = path.split('.').pop()
     return new Response(file, { headers: { 'Content-Type': MIME[ext] ?? 'application/octet-stream' } })

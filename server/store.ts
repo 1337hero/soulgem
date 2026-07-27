@@ -1,6 +1,6 @@
 // Durable single-user state: memory notes + relationship meter.
 // Files stay exactly as before: memory/user.jsonl (one {t, note} per line), memory/state.json ({"meter": n}).
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
 export type Note = { t: string; note: string }
@@ -20,9 +20,12 @@ export class Store {
   stateFile: string
   memories: Note[]
   meter: number
+  meterOn: boolean
 
   // ponytail: sync fs at boot — single user, two small files, no reason for async plumbing.
-  constructor(dir: string) {
+  constructor(dir: string, opts: { meter?: boolean } = {}) {
+    this.meterOn = opts.meter !== false
+    mkdirSync(dir, { recursive: true })
     this.memFile = join(dir, 'user.jsonl')
     this.stateFile = join(dir, 'state.json')
     this.memories = existsSync(this.memFile)
@@ -32,6 +35,7 @@ export class Store {
   }
 
   applyMeterDelta(d: number) {
+    if (!this.meterOn) return
     this.meter = Math.max(0, Math.min(100, this.meter + d))
     writeFileSync(this.stateFile, JSON.stringify({ meter: this.meter }))
   }
@@ -49,14 +53,17 @@ export class Store {
 
   /** The memories + standing sections appended to the persona prompt. */
   promptSection() {
-    const [, name, tone] = tierOf(this.meter)
     let s = ''
     if (this.memories.length) {
-      s += '\n\n## What you remember about the Thane\n'
+      s += '\n\n## What you remember about them\n'
          + 'These are things you know from your time together. Bring them up naturally\n'
-         + 'whenever they are relevant — that attentiveness is how you show loyalty.\n'
+         + 'whenever they are relevant — that attentiveness is how you show you care.\n'
          + this.memoryLines().join('\n')
     }
-    return s + `\n\n## Current standing\nRelationship: ${this.meter}/100 (${name}). ${tone}`
+    if (this.meterOn) {
+      const [, name, tone] = tierOf(this.meter)
+      s += `\n\n## Current standing\nRelationship: ${this.meter}/100 (${name}). ${tone}`
+    }
+    return s
   }
 }

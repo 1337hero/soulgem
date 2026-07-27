@@ -51,7 +51,7 @@ let spineBone = null
 const headBindWorldQ = new THREE.Quaternion()
 const spineBindQ = new THREE.Quaternion()
 
-new GLTFLoader().load('lydia.glb', gltf => {
+new GLTFLoader().load('body.glb', gltf => {
   model = gltf.scene
   model.traverse(o => {
     if (!o.isMesh) return

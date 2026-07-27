@@ -14,7 +14,7 @@ for n in ('pfi18', 'pfi19ex'):
         anims[n] = open(p).read()
 anims_js = '{' + ','.join(f'"{k}":{v}' for k, v in anims.items()) + '}'
 
-bundle = bundle.replace('"lydia.glb"', 'window.LYDIA_GLB').replace("'lydia.glb'", 'window.LYDIA_GLB')
+bundle = bundle.replace('"body.glb"', 'window.LYDIA_GLB').replace("'body.glb'", 'window.LYDIA_GLB')
 assert 'window.LYDIA_GLB' in bundle, 'glb path not found in bundle'
 inline = (f'<script>window.LYDIA_GLB="data:application/octet-stream;base64,{glb}";'
           f'window.LYDIA_ANIMS={anims_js}</script>\n'

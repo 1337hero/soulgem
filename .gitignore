@@ -6,9 +6,11 @@ anims/*
 !anims/.gitkeep
 tts_samples/
 
-# --- personal state (conversation memory, relationship meter) ---
-memory/*
-!memory/.gitkeep
+# --- souls are personal (persona, voice, memory) — only the example ships ---
+souls/*
+!souls/example/
+souls/example/memory/*
+!souls/example/memory/.gitkeep
 
 # --- vendored third-party ---
 # Rhubarb Lip Sync binary distribution (download: github.com/DanielSWolf/rhubarb-lip-sync)
