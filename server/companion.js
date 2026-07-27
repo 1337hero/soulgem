@@ -106,31 +106,58 @@ async function handleTurn(ws, userText) {
   let meta = null
   let seq = 0
   let tFirst = 0
+  let stageError = null          // first synth/lipsync failure; rethrown after the chain drains
+  let interrupted = false        // log barge-in once, not per pending chunk
+  let sendChain = Promise.resolve()  // serializes speak messages in seq order
+
   for await (const ev of thinkStream(userText, token, ws.data.history)) {
     if (ev.type === 'meta') {
       meta = ev.meta
     } else if (ev.type === 'sentence') {
-      const wav = await synthesize(ev.text)
-      const visemes = await lipSync(wav, ev.text)
-      if (token.cancelled) {
-        console.log(`turn interrupted at chunk ${seq} — "${ev.text.slice(0, 40)}"`)
-        return
-      }
-      const mood = Object.keys(meta?.mood ?? {}).length ? meta.mood
-                 : EMOTION_MOOD[meta?.emotion] ?? {}
-      tFirst ||= Date.now()
-      ws.send(JSON.stringify({
-        type: 'speak', seq, sentence: ev.text,
-        emotion: meta?.emotion, mood, gesture: seq === 0 ? meta?.gesture ?? 'none' : 'none',
-        meter: store.meter, tier: tierOf(store.meter)[1],
-        visemes, audio: wav.toString('base64'),
-      }))
-      seq++
+      const mySeq = seq++
+      // Start synth+lipsync NOW — sentence N+1 must not wait for sentence N's
+      // rhubarb (pocketSphinx is ~RTF 0.9 on one core, but 8 concurrent cost
+      // barely more than 1). Only the send order is serialized, via sendChain.
+      const job = (async () => {
+        if (token.cancelled) return null
+        const wav = await synthesize(ev.text)
+        if (token.cancelled) return null
+        return { wav, visemes: await lipSync(wav, ev.text) }
+      })()
+      sendChain = sendChain.then(async () => {
+        let ready
+        try {
+          ready = await job
+        } catch (e) {
+          stageError ??= e
+          token.cancelled = true   // abandon the rest of the turn
+          return
+        }
+        if (!ready || token.cancelled) {
+          if (!interrupted) console.log(`turn interrupted at chunk ${mySeq} — "${ev.text.slice(0, 40)}"`)
+          interrupted = true
+          return
+        }
+        const mood = Object.keys(meta?.mood ?? {}).length ? meta.mood
+                   : EMOTION_MOOD[meta?.emotion] ?? {}
+        tFirst ||= Date.now()
+        ws.send(JSON.stringify({
+          type: 'speak', seq: mySeq, sentence: ev.text,
+          emotion: meta?.emotion, mood, gesture: mySeq === 0 ? meta?.gesture ?? 'none' : 'none',
+          meter: store.meter, tier: tierOf(store.meter)[1],
+          visemes: ready.visemes, audio: ready.wav.toString('base64'),
+        }))
+      })
     } else if (ev.type === 'done') {
+      await sendChain
+      if (stageError) throw stageError
+      if (token.cancelled) return
       ws.send(JSON.stringify({ type: 'speak_end' }))
       console.log(`turn: first audio ${tFirst - t0}ms, total ${Date.now() - t0}ms, ${seq} chunk(s) — "${ev.thought.reply.slice(0, 60)}"`)
     }
   }
+  await sendChain  // cancelled mid-stream: let queued (skipping) links settle
+  if (stageError) throw stageError
 }
 
 const MIME = { html: 'text/html', js: 'text/javascript', json: 'application/json',
@@ -179,3 +206,12 @@ Bun.serve({
 })
 
 console.log(`lydia companion on http://localhost:${PORT}`)
+
+// Wake llama-swap now so the soul's model loads at launch, not on first chat
+// (~10s Gemma, ~70s big models). Fire-and-forget; first turn just gets faster.
+fetch(LLM_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ model: CFG.model, messages: [{ role: 'user', content: 'wake' }], max_tokens: 1 }),
+}).then(r => console.log(`llm ${CFG.model} ${r.ok ? 'warm' : `warmup failed: ${r.status}`}`),
+        e => console.log(`llm warmup failed: ${e.message ?? e}`))

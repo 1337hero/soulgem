@@ -8,6 +8,12 @@ import { SHAPE_VISEME } from './protocol.ts'
 const WHISPER_URL = Bun.env.LYDIA_ASR_URL ?? 'http://127.0.0.1:8124/inference'
 const TTS_URL = Bun.env.LYDIA_TTS_URL ?? 'http://127.0.0.1:8123/speak'
 const RHUBARB = Bun.env.LYDIA_RHUBARB ?? join(import.meta.dir, 'rhubarb/rhubarb')
+// pocketSphinx (default) uses the dialog text; ~2.3s init + 0.79x audio, one
+// core, no daemon mode — slow serially, but 8 concurrent invocations cost
+// barely more than 1, so companion.js pipelines it off the critical path.
+// 'phonetic' is acoustic-only (ignores the transcript) and ~5x faster if the
+// first-sentence latency ever needs it.
+const RECOGNIZER = Bun.env.LYDIA_RHUBARB_RECOGNIZER ?? 'pocketSphinx'
 
 // webm/opus bytes -> text
 export async function transcribe(audioBytes) {
@@ -43,7 +49,7 @@ export async function lipSync(wav, text) {
   try {
     await Bun.write(tmp + '.wav', wav)
     await Bun.write(tmp + '.txt', text)
-    const out = await $`${RHUBARB} -f json --machineReadable -d ${tmp + '.txt'} ${tmp + '.wav'}`.quiet()
+    const out = await $`${RHUBARB} -f json --machineReadable -r ${RECOGNIZER} -d ${tmp + '.txt'} ${tmp + '.wav'}`.quiet()
     return JSON.parse(out.stdout.toString()).mouthCues
       .map(c => ({ s: c.start, e: c.end, v: SHAPE_VISEME[c.value] ?? null }))
   } catch (e) {
