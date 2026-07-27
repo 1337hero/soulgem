@@ -210,10 +210,14 @@ so any swap is a config line, not a refactor.
     Warm-turn first audio 8–11s → **~6.5s** regardless of reply length.
     Chunk gaps remain audible (RTF 1.4 < realtime) — closes when the
     faster-qwen3-tts fork hits its ≥2x-realtime gate.
-  - Remaining: clothes (Mike researching armor options), gestures from HKX
-    one-shots, single-card model bake-off (Bonsai-27B / Gemma4-12B /
-    GLM-4.7-Flash / Ornith-1.0-9B), emotive TTS (hold for fork), vision/bg-gen
-    (parked).
+  - ✅ **Clothes** — Girl's Travel Outfit (CBBE) from Vortex staging via new
+    `data_roots` multi-root texture resolution. The outfit ships its own CBBE
+    body + hands (shaderType 5, standard female texture paths → existing Bijin
+    remap + body_bake apply), so it REPLACES femalebody/hands/feet in the
+    config. Weight _1 matches her Bijin body. Verified 3 angles headless.
+  - Remaining: gestures from HKX one-shots, single-card model bake-off
+    (Bonsai-27B / Gemma4-12B / GLM-4.7-Flash / Ornith-1.0-9B), emotive TTS
+    (hold for fork), vision/bg-gen (parked).
 
 ## 7. Open questions / risks
 
