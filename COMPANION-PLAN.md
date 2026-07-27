@@ -215,9 +215,24 @@ so any swap is a config line, not a refactor.
     body + hands (shaderType 5, standard female texture paths → existing Bijin
     remap + body_bake apply), so it REPLACES femalebody/hands/feet in the
     config. Weight _1 matches her Bijin body. Verified 3 angles headless.
-  - Remaining: gestures from HKX one-shots, single-card model bake-off
-    (Bonsai-27B / Gemma4-12B / GLM-4.7-Flash / Ornith-1.0-9B), emotive TTS
-    (hold for fork), vision/bg-gen (parked).
+  - ✅ **Gestures** — wave/salute/laugh/applaud/point one-shots from vanilla
+    BSA HKX (empty-track-name fallback via anims/skeleton_track_order.json),
+    client crossfade in/out, model picks them reliably. Root-caused along the
+    way: llama.cpp grammar only pins REQUIRED schema fields' order — optional
+    gesture/mood floated after `reply` and never hit the streamed metadata.
+    All REPLY_SCHEMA fields are now required; mood filled properly ever since.
+  - ✅ **Model bake-off** (6 canned turns, all-required schema, single R9700):
+    | model | t/s | turn | mechanics | voice |
+    |---|---|---|---|---|
+    | Gemma4-12B (current) | 36 | ~3s | 6/6 valid, best meter judgment | dry, correct |
+    | GLM-4.7-Flash | 56-59 | <2s | 6/6, gestures good, note-happy (4/6), meter generous | sharpest deadpan |
+    | Ornith-1.0-9B bf16 | 26 | ~6s | 6/6, meter quirky (-3 on innocent q) | folksy, warm |
+    | Bonsai-27B Q1_0 | 32 | ~3s | 6/6 but idle_switch spam, lore slips | funniest lines |
+    Recommendation: GLM-4.7-Flash (speed + voice) after tightening memory_note
+    guidance; needs a llama-swap entry (currently only in /mnt/storage backup).
+    Gemma4-12B stays a safe default. Mike judges final voice.
+  - Remaining: emotive TTS (hold for faster-qwen3-tts fork), vision/bg-gen
+    (parked).
 
 ## 7. Open questions / risks
 
