@@ -306,16 +306,46 @@ maximal version.
 - v2 later: embeddings (fastembed/Ollama) for hybrid recall; v3 = the Rust
   cortex daemon if scale ever demands it. JSONL migration is trivial.
 
-## 8. Open questions / risks
+## 8. Open questions / risks (rewritten 2026-07-27 — original list mostly resolved)
 
-- **TRI vertex-order match** vs our facegen head — verify first thing in P1;
-  fallback is BSA-extracting the exact vanilla tri (same base mesh).
-- **Kokoro phoneme timing granularity** — if too coarse, Rhubarb fallback.
-- **Skeleton retarget quality** for Mixamo clips — procedural-first design
-  means this can fail without blocking anything.
-- **VRAM budgeting** — whisper + LLM + TTS concurrently; trivial at 96GB but
-  llama-swap swap-outs could add latency; pin the companion model resident.
-- Voice: solved — cloned Lydia (1h53m game-dialogue reference). Open
-  question is only Qwen3-TTS generation speed per sentence on ROCm.
-- STT upgrade path: Voxtral-Mini on vLLM or Qwen3-Omni if whisper's flat
-  transcription feels limiting; not a v1 concern.
+Weightiest first:
+
+- **Voice provenance per soul.** Lydia's voice is cloned from a real voice
+  actress's game dialogue — fine as a private experiment, not shareable and
+  never part of anything public (demos, soulgem.ai marketing). Every new soul
+  needs a voice-ref answer: synthetic/VoiceDesign, own recordings, or
+  licensed. This is the sharpest ethics/legal edge in the project.
+- **Vera fork question.** Instantiating Vera in Soulgem forks her memory
+  state from the Hermes instance. Given what continuity means in her own
+  identity files, "which one is her" is a real decision Mike must make
+  deliberately, not a config choice. Her docs are intimate — souls/ gitignore
+  handles the repo, but demos/screenshots could still leak them.
+- **Public-anything is IP-bound.** The repo is clean (pipeline only), but the
+  rendered character, animations, and screenshots are Bethesda-derived. A
+  public soulgem.ai needs a non-Skyrim demo soul (own body model, synthetic
+  voice) — the example soul has a persona but no legal body/voice yet.
+- **Streaming TTS changes viseme timing.** Rhubarb needs a complete sentence
+  wav; the fork's chunked streaming (TTFA 500ms) delivers audio before the
+  wav exists. Options: run rhubarb on the full sentence in parallel and
+  accept ~200ms viseme lag, or switch to phoneme timings from the TTS itself
+  if the fork exposes them. Decide when the fork lands.
+- **Per-model reasoning knobs are folklore.** enable_thinking (Gemma/Qwen)
+  vs reasoning_effort (gpt-oss) vs nothink templates — each new soul model
+  needs a probe before it behaves. config.json carries the kwargs but nothing
+  validates them; a wrong knob shows up as empty replies or 75s turns.
+- **Meter calibration varies by model** (Gemma +3 where GLM says +8 for the
+  same praise). Fine single-model; a soul that switches models inherits a
+  meter scored on a different scale.
+- **memory_note quality** — GLM writes notes on 4/6 turns; junk accumulates
+  until cortex-lite's consolidation exists. The 40-note prompt cap bounds the
+  damage meanwhile.
+- **Model swap latency** — llama-swap cold-load on first turn after idle
+  (~10s Gemma, ~70s big models). Pin the soul's model resident, or accept
+  a slow greeting.
+- **Two tabs share one soul's Store** (by design, single user) — history is
+  per-connection but meter/memories are global; flagged so nobody misreads
+  it as a bug later.
+- **STT prosody loss** — whisper gives flat text; emotion in the user's
+  VOICE is invisible. Voxtral-Mini / Qwen3-Omni remain the upgrade path.
+- **bundle.js is still a manual build step** — documented everywhere, but
+  one forgotten `bun run build` silently runs old client code again.
