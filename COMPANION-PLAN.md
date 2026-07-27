@@ -228,13 +228,44 @@ so any swap is a config line, not a refactor.
     | GLM-4.7-Flash | 56-59 | <2s | 6/6, gestures good, note-happy (4/6), meter generous | sharpest deadpan |
     | Ornith-1.0-9B bf16 | 26 | ~6s | 6/6, meter quirky (-3 on innocent q) | folksy, warm |
     | Bonsai-27B Q1_0 | 32 | ~3s | 6/6 but idle_switch spam, lore slips | funniest lines |
+    | GPT-OSS-20B | **141-155** | **0.6-1s** | 6/6 with `reasoning_effort:'low'` (NOT enable_thinking — 3/6 empty without it), used memory + wave | plainer but serviceable |
     Recommendation: GLM-4.7-Flash (speed + voice) after tightening memory_note
     guidance; needs a llama-swap entry (currently only in /mnt/storage backup).
     Gemma4-12B stays a safe default. Mike judges final voice.
   - Remaining: emotive TTS (hold for faster-qwen3-tts fork), vision/bg-gen
     (parked).
 
-## 7. Open questions / risks
+## 7. Direction: souls as swappable packs (2026-07-27, Mike's musing)
+
+The Lydia persona may not be the keeper — the *rig* is (model, voice actress
+pipeline, Ani-style interactive loop). Next evolution: a chat agent with real
+memory and a user-creatable person. Sketch:
+
+```
+souls/<name>/
+  persona.md     character sheet (output-format stays generated from protocol.ts)
+  voice_ref.wav  TTS clone reference
+  body.glb       from a build_glb config (or shared)
+  config.json    LLM model + reasoning knobs, meter on/off, emotion presets
+  memory/        per-soul user.jsonl + state.json namespace
+```
+
+Server takes a soul name; Store roots at the soul's memory dir. The arch
+refactors make this cheap: Store is the memory seam (a vera-cortex-backed
+adapter can replace JSONL later), stages.js is the voice seam, build_glb
+configs are the body seam, model is one config line (bake-off table above =
+menu). Meter becomes per-soul config — Vera doesn't want a game meter.
+
+**Vera**: original backup at /mnt/storage/timeshift/snapshots-ondemand/
+2026-02-17_23-22-47/localhost/home/mikekey/Vera (current instance lives in
+Hermes). Ships CLAUDE.md identity + self/{identity,values,preferences,
+becoming,reflections}.md + MEMORY.md + Areas/living-memory.md, AND
+specs/vera-cortex-implementation.md — a full Rust memory-graph daemon design
+(SQLite+LanceDB, 8 memory types, 6 edge types, RRF hybrid search, decay,
+event-driven consolidation, adapted from spacebot). That spec is the natural
+"real memory" upgrade path for Soulgem's Store seam.
+
+## 8. Open questions / risks
 
 - **TRI vertex-order match** vs our facegen head — verify first thing in P1;
   fallback is BSA-extracting the exact vanilla tri (same base mesh).
