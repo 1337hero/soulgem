@@ -25,13 +25,20 @@ llama-swap on :8082 is systemd-managed and assumed running. GPU status:
   brackets). Killing bun fires run.sh's EXIT trap: whisper + TTS die too;
   there is no partial restart.
 - **Benchmark TTS only on NOVEL sentences** — MIOpen caches per tensor shape;
-  repeated text lies ~4x. `MIOPEN_FIND_MODE=FAST` in tts_server.py is
-  load-bearing.
+  repeated text lies ~4x. (Applied to the old torch path; the live Vulkan
+  engine has no MIOpen, but the novel-sentence rule still holds.)
+- **Rhubarb is slower than it looks** — pocketSphinx is ~2.3s init + 0.79x
+  audio, single-core, no daemon mode. Don't try to tune one call; it's already
+  pipelined so only the first sentence of a turn is on the critical path.
+  `LYDIA_RHUBARB_RECOGNIZER=phonetic` is ~5x faster but ignores the transcript
+  (Mike judged pocketSphinx's mouth movement better).
 - **REPLY_SCHEMA field order is load-bearing** and only REQUIRED fields keep
   their declared order in llama.cpp's grammar — keep every field required.
-- Reasoning knobs are per-model: `enable_thinking:false` (Gemma/Qwen family)
-  vs `reasoning_effort:'low'` (gpt-oss — enable_thinking is ignored and
+- Reasoning knobs are per-model: `enable_thinking:false` (Gemma/Qwen/GLM
+  family) vs `reasoning_effort:'low'` (gpt-oss — enable_thinking is ignored and
   reasoning eats max_tokens → empty replies). Set in the soul's config.json.
+  Symptom of the wrong knob is an EMPTY `content` with a full
+  `reasoning_content` — probe a new model before blaming the schema.
 - Not everything is committed: `anims/`, `lydia.glb`, `texcache/`, souls
   other than example/ are gitignored (game-derived or personal). Never
   git-add game assets.
@@ -110,8 +117,20 @@ JPGs. `viewer.setScene(null)` → void. Stage-1 plumbing (config scenes list,
 
 ## Verification patterns
 
-Playwright headless (headed is broken on this box, untriaged). WS probe
-without a browser: see the wsprobe pattern — connect ws://localhost:8471/ws,
-send `{type:'text', text}`, expect `transcript` → `speak`×N → `speak_end`.
-`window.viewer` in the page: `say()`, `setMorph`, `playIdle`, `playGesture`,
-`setScene`, `gaze` (live-tunable), `THREE` exposed for experiments.
+Playwright headless (headed is broken on this box, untriaged). No playwright
+package is installed globally — `bun add playwright-core` in a scratch dir and
+point `executablePath` at
+`~/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome` (note
+`chrome-linux64`, not `chrome-linux`). Launch with `--use-gl=swiftshader
+--enable-unsafe-swiftshader`.
+
+WS probe without a browser: connect ws://localhost:8471/ws, send
+`{type:'text', text}`, expect `state` (on connect) → `transcript` →
+`speak`×N → `speak_end`. `window.viewer` in the page: `say()`, `setMorph`,
+`playIdle`, `playGesture`, `setScene`, `gaze` (live-tunable), `THREE` exposed
+for experiments.
+
+UI paths worth re-checking after client edits: `I` opens the text input and
+`Esc` closes it; **typing must not trigger push-to-talk** (window keydown
+handlers bail on INPUT/TEXTAREA — 't' is in most words, so a regression here
+opens the mic mid-sentence).

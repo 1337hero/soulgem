@@ -9,10 +9,10 @@ on this machine (3x R9700).
 
 ## Run the companion
 
-Prerequisites (all machine-local, paths hardcoded in `server/run.sh` /
-`server/tts_server.py`):
-- llama-swap already serving on :8082 (systemd) with the `Gemma4-12B` model
-  registered — the stack assumes it, run.sh does not start it
+Prerequisites (all machine-local, paths hardcoded in `server/run.sh`):
+- llama-swap already serving on :8082 (systemd) with the soul's model
+  registered (Lydia: `GLM-4.7-Flash`) — the stack assumes it, run.sh does not
+  start it
 - whisper.cpp Vulkan build + large-v3-turbo model (paths in run.sh)
 - Qwen3-TTS engine at `~/Experiments/voice/qwen3-tts-fast` (qwentts.cpp/Vulkan,
   Q6_K — no torch, no ROCm; `server/tts_server.py` is the old torch fallback)
@@ -31,19 +31,22 @@ memories + relationship meter). Copy `souls/example/` (Aster, a lighthouse
 librarian) to start your own. Everything under `souls/` except the example is
 gitignored — souls are personal.
 
-Wait for `warmed up` in the output (~60–90s: TTS model load + warmup gen),
-then open **http://localhost:8471**. Hold the talk button or the `T` key to
-speak; release to send. Text path without a mic: open the console and
-`viewer.say('Hello Lydia')`. Talking while she speaks barges in and cancels
-her turn.
+Wait for `warmed up` in the output (TTS loads in ~1s; the stack also warms the
+soul's LLM at launch so the first turn doesn't pay llama-swap's cold load),
+then open **http://localhost:8471**.
+
+- **Voice** — hold the talk button or `T`, release to send.
+- **Text** — `I` (or the ⌨ button) swaps the talk button for an input; Enter
+  sends, the field stays open, `Esc` returns to voice. The choice persists
+  across reloads. `viewer.say('Hello Lydia')` still works from the console.
+- Talking or typing while she speaks barges in and cancels her turn.
 
 Ctrl-C stops everything (run.sh's EXIT trap kills whisper + TTS with it —
 there is no partial restart; killing the orchestrator restarts the stack).
 
 Service URLs are env-overridable: `LYDIA_ASR_URL`, `LYDIA_TTS_URL`,
-`LYDIA_RHUBARB` (see `server/stages.js`), `TTS_PORT`/`TTS_MODEL`
-(tts_server.py). First LLM turn after idle includes llama-swap loading the
-model (~10s).
+`LYDIA_RHUBARB`, `LYDIA_RHUBARB_RECOGNIZER` (see `server/stages.js`),
+`TTS_PORT`/`TTS_REF` (the TTS project's `server.py`).
 
 ## Layout
 
@@ -55,11 +58,11 @@ model (~10s).
 | `server/protocol.ts` | single source of truth: WS message types, LLM reply schema (field order is load-bearing), morph vocabulary, generated persona output-format |
 | `server/reply_stream.ts` | pure streaming-JSON reply parser (`bun test server/`) |
 | `server/stages.js` | transcribe / synthesize / lipSync adapters (whisper, Qwen3-TTS, Rhubarb) |
-| `server/tts_server.py` | Qwen3-TTS 0.6B bf16 + cloned Lydia voice, ROCm (`MIOPEN_FIND_MODE=FAST` is load-bearing) |
+| `server/tts_server.py` | old torch/ROCm TTS — fallback only; run.sh launches `~/Experiments/voice/qwen3-tts-fast/server.py` (Vulkan, ~19x faster) |
 | `souls/<name>/` | soul pack: persona + config + voice ref + per-soul memory |
 | `AGENTS.md` | how-to: swap outfits/bodies, add animations, souls, scenes |
 | `main.js` | three.js client: viewer, idle anims, viseme lipsync, WS voice loop |
-| `COMPANION-PLAN.md` | phase plan + status; `HANDOFF.md` — current working state |
+| `COMPANION-PLAN.md` | phase plan + status |
 
 **After editing `main.js` (or anything it imports): `bun run build`** —
 index.html loads `bundle.js`, not `main.js`; a stale bundle silently runs old

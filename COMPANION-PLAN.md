@@ -47,7 +47,7 @@ makes the model emit, alongside the reply text:
 | Ani module          | Local equivalent                                             | Status |
 |---------------------|--------------------------------------------------------------|--------|
 | ASR                 | whisper.cpp (Vulkan, proven) default; evaluate Voxtral-Mini (vLLM) / Qwen3-Omni later — adapter speaks OpenAI `/v1/audio/transcriptions` so swap is config | **have** |
-| LLM                 | llama-swap :8082 — GLM-4.5-Air (or any resident model)       | **have** |
+| LLM                 | llama-swap :8082 — GLM-4.7-Flash (per-soul, any resident model) | **have** |
 | Context manager     | Bun orchestrator (WebSocket server), persona.md + memory store | build |
 | TTS                 | **Qwen3-TTS + cloned Lydia voice**, Vulkan/qwentts.cpp Q6_K — `~/Experiments/voice/qwen3-tts-fast` (RTF 0.233, 4.29x realtime, TTFA 280ms; `server.py` on :8123). Kokoro-82M fallback no longer needed | **DONE** |
 | Avatar actions      | three.js: morph targets (TRI phonemes/expressions) + procedural + clips | build |
@@ -273,8 +273,8 @@ so any swap is a config line, not a refactor.
   ✅ **DONE 2026-07-27** — `memory/user.jsonl` (memory_note per turn) +
   `memory/state.json` (meter 0–100, `meter_delta` in schema, 4 tone tiers
   injected into the system prompt). Verified: taught her a fact, restarted
-  the server, she used it unprompted. LLM now Gemma4-12B (Mike's pick —
-  nails character, no reasoning burn; llm turn ~2-3s).
+  the server, she used it unprompted. (LLM was Gemma4-12B at the time; now
+  GLM-4.7-Flash — see the P5 bake-off below.)
 - **P5 — polish/optional**: clothes (BSA extractor + armor), Orpheus TTS
   (emotive tags, laughs), Mixamo gesture clips, webcam vision, background
   gen, barge-in (interrupt her mid-sentence).
@@ -326,6 +326,22 @@ so any swap is a config line, not a refactor.
   - ✅ **LLM warmup at launch** — companion.js fires a 1-token request on
     start so llama-swap loads the soul's model (~22s GLM) during stack boot,
     not on the first chat.
+  - ❌ **GLM-4.7-Flash-Uncensored REJECTED 2026-07-27** — DavidAU
+    Uncen-Hrt-NEO-CODE imatrix Q4_K_M (18.5 GiB, llama-swap entry
+    `GLM-4.7-Flash-Uncensored`, kept registered). Same speed as base Flash
+    (98 t/s, 1.1s turns), 6/6 valid, no refusals to route around — but Mike's
+    verdict after live use was "interesting, feels dumber". The Q4 quant is
+    the likely cost; base Flash is MXFP4_MOE. Reverted to `GLM-4.7-Flash`.
+    Don't re-audition without a bigger quant.
+  - ✅ **Text input mode** — `I` swaps the talk button for an input (Enter
+    sends, stays open, `Esc` back to voice, choice persisted). Push-to-talk
+    keydown handlers now bail inside INPUT/TEXTAREA — 't' is in most words,
+    so typing used to open the mic. All three entry points (voice, typed,
+    `viewer.say`) share `sendTurn()`, which also gave `viewer.say` the
+    barge-in it never had.
+  - ✅ **Meter on connect** — `state` WS message on open, so regard renders
+    on a cold page load instead of only mid-reply. Moved to the top right;
+    the Lydia/Housecarl title block is gone (souls are swappable).
   - Remaining: emotive TTS (Qwen3-TTS exposes no emotion conditioning on the GGML path), vision/bg-gen
     (parked).
 
