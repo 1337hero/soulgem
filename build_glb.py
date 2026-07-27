@@ -16,18 +16,12 @@ DATA = '/home/mikekey/.local/share/Steam/steamapps/common/Skyrim Special Edition
 CACHE = os.path.join(os.path.dirname(__file__), 'texcache')
 os.makedirs(CACHE, exist_ok=True)
 
-def find_texture(cfg, game_path):
-    tex_root = os.path.join(cfg['data'], 'textures')
-    key = game_path.lower()
-    if key.startswith('data\\'):
-        key = key[5:]
-    key = key.replace('textures\\', '', 1)
-    rel = cfg['remap'].get(key, key.replace('\\', '/'))
-    p = os.path.join(tex_root, rel)
-    if os.path.exists(p):
+def _ci_find(root, rel):
+    # exact path first, then a case-insensitive walk component by component
+    p = os.path.join(root, rel)
+    if os.path.isfile(p):
         return p
-    # case-insensitive walk, component by component
-    cur = tex_root
+    cur = root
     for part in rel.split('/'):
         if not os.path.isdir(cur):
             return None
@@ -36,6 +30,20 @@ def find_texture(cfg, game_path):
             return None
         cur = os.path.join(cur, match)
     return cur if os.path.isfile(cur) else None
+
+
+def find_texture(cfg, game_path):
+    key = game_path.lower()
+    if key.startswith('data\\'):
+        key = key[5:]
+    key = key.replace('textures\\', '', 1)
+    rel = cfg['remap'].get(key, key.replace('\\', '/'))
+    # mod staging dirs (data_roots) take priority over the game Data dir
+    for root in cfg.get('data_roots', []) + [cfg['data']]:
+        hit = _ci_find(root, 'textures/' + rel)
+        if hit:
+            return hit
+    return None
 
 
 def to_png(cfg, dds_path, max_size=1024):
@@ -290,13 +298,21 @@ def main(cfg):
     print(f'\nwrote {cfg["out"]}: {len(glb)/1e6:.2f} MB, {len(meshes_out)} meshes, {len(images)} textures')
 
 
+# Girl's Travel Outfit (Vortex staging, not deployed into Data) — the outfit
+# carries its own CBBE body + hands, so it REPLACES femalebody/hands/feet.
+GTO = os.path.expanduser(
+    "~/.config/steamtinkerlaunch/vortex/staging/skyrimse/mods/"
+    "Girl's Travel Outfit CBBE-125910-1-1-2-1727489948")
+
 LYDIA = {
     'data': DATA,
+    'data_roots': [GTO],
     'out': os.path.join(os.path.dirname(__file__), 'lydia.glb'),
     'meshes': [
-        ('meshes/actors/character/Bijin Warmaidens/femalebody_1.nif', {'skin': True}),
-        ('meshes/actors/character/Bijin Warmaidens/femalehands_1.nif', {'skin': True}),
-        ('meshes/actors/character/Bijin Warmaidens/femalefeet_1.nif', {'skin': True}),
+        (os.path.join(GTO, "Meshes/Girl's Travel Outfit/torso_1.nif"), {}),
+        (os.path.join(GTO, "Meshes/Girl's Travel Outfit/gloves_1.nif"), {}),
+        (os.path.join(GTO, "Meshes/Girl's Travel Outfit/boots_1.nif"), {}),
+        (os.path.join(GTO, "Meshes/Girl's Travel Outfit/choker.nif"), {}),
         # her real face: facegen keyed to the origin master (skyrim.esm) = Bijin sculpt
         ('meshes/actors/character/facegendata/facegeom/skyrim.esm/000A2C8E.NIF', {}),
     ],
