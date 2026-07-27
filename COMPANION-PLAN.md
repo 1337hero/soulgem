@@ -306,6 +306,39 @@ maximal version.
 - v2 later: embeddings (fastembed/Ollama) for hybrid recall; v3 = the Rust
   cortex daemon if scale ever demands it. JSONL migration is trivial.
 
+## 7c. Scenes — Stage 1 design (agreed 2026-07-27, not yet built)
+
+Ani's environment layer, staged. Stage 1 = scene LIBRARY + LLM-driven
+switching; generation comes later.
+
+- **Soul config**: `"scenes": { "<id>": { "pano": "scenes/<id>.png",
+  "ambient": "scenes/<id>.ogg"?, "light": "#rrggbb"? } }` — per-soul scene
+  list (Lydia: whiterun_street / breezehome_hearth / plains_night; Aster:
+  library_stacks / lamp_room / fog_bell_gallery). Panoramas are EQUIRECT
+  (camera orbits — flat backdrops break on drag), on a sky sphere.
+- **Schema**: add `scene` field, enum built per-soul from config keys +
+  'stay'. Generated FIELD_DOCS text: "where the conversation is happening;
+  change it when you move somewhere ('come, sit by the fire') — otherwise
+  stay." Required-field ordering rule applies (before `reply`).
+- **Client**: sky-sphere textured with the scene pano, ~1s crossfade on
+  change; key/fill light tint from config `light` (or sampled palette) so
+  she sits IN the scene; optional ambient loop per scene, volume-ducked
+  while she speaks.
+- **Server**: scene rides the `speak` seq-0 message like `gesture`; current
+  scene persists in the soul's state.json so she's still by the fire after
+  a restart.
+- **Assets**: Stage 2 = generate panoramas offline (ComfyUI + SDXL +
+  equirect LoRA on the idle R9700 — generated scenery also sidesteps the
+  Bethesda-IP problem). Stage 3 = runtime gen from a free-text scene_prompt
+  (SDXL-Lightning ~2-4s, crossfade when ready) only if Stage 1 proves the
+  mechanic. Ambient loops: curated, not generated.
+
+Meter status vs Ani's spec (asked 2026-07-27): deltas/persistence/tiers ✅
+(4 loyalty tiers, not Ani's 5-tier intimacy ladder — deliberate); tier
+shapes prompt tone ✅ and is visible in the UI ✅; NOT done: tier/emotion-
+conditioned TTS delivery (waits on emotive TTS) and tier-gated behavior
+unlocks (Ani's mechanic, arguably skip).
+
 ## 8. Open questions / risks (rewritten 2026-07-27 — original list mostly resolved)
 
 Weightiest first:
