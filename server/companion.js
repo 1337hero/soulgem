@@ -1,0 +1,174 @@
+// Lydia companion orchestrator: static viewer + WS voice loop.
+//   bun run server/companion.js
+// Pipeline per turn: audio -> whisper-server -> GLM (persona, JSON) -> TTS -> client.
+import { dirname, join } from 'path'
+import { REPLY_SCHEMA, EMOTION_MOOD, outputFormatDoc } from './protocol.ts'
+import { replyParser } from './reply_stream.ts'
+import { transcribe, synthesize, lipSync } from './stages.js'
+import { Store, tierOf } from './store.ts'
+
+const ROOT = dirname(import.meta.dir)  // project root
+const PORT = 8471
+const LLM_URL = 'http://127.0.0.1:8082/v1/chat/completions'
+const LLM_MODEL = 'Gemma4-12B'
+
+const PERSONA = await Bun.file(join(ROOT, 'persona/lydia.md')).text()
+
+// ---- durable state: memory + relationship meter (P4) ----
+const store = new Store(join(ROOT, 'memory'))
+
+const systemPrompt = () => PERSONA + '\n' + outputFormatDoc() + store.promptSection()
+
+function applyThought(parsed) {
+  if (typeof parsed.meter_delta === 'number') store.applyMeterDelta(parsed.meter_delta)
+  if (parsed.memory_note) store.addNote(parsed.memory_note)
+}
+
+// Per-connection conversation history, trimmed to the last HISTORY_CAP turns.
+const HISTORY_CAP = 48  // ponytail: hard cap; nothing to configure yet
+function push(history, msg) {
+  history.push(msg)
+  if (history.length > HISTORY_CAP) history.splice(0, history.length - HISTORY_CAP)
+}
+
+// Streams the LLM response, yielding events as they become available:
+//   {type:'meta', meta}      — emotion/mood/gesture/... (before reply text starts)
+//   {type:'sentence', text}  — each completed sentence of the reply
+//   {type:'done', thought}   — full parsed object at the end
+async function* thinkStream(userText, token, history) {
+  push(history, { role: 'user', content: userText })
+  const res = await fetch(LLM_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: LLM_MODEL,
+      messages: [{ role: 'system', content: systemPrompt() }, ...history.slice(-24)],
+      temperature: 0.8,
+      max_tokens: 400,
+      stream: true,
+      chat_template_kwargs: { enable_thinking: false },
+      response_format: {
+        type: 'json_schema',
+        json_schema: { name: 'lydia_reply', schema: REPLY_SCHEMA },
+      },
+    }),
+  })
+  if (!res.ok) throw new Error(`llm ${res.status}: ${await res.text()}`)
+
+  const parser = replyParser()
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let sse = ''
+  try {
+    while (true) {
+      if (token.cancelled) return
+      const { done, value } = await reader.read()
+      if (done) break
+      sse += dec.decode(value, { stream: true })
+      const lines = sse.split('\n')
+      sse = lines.pop()
+      for (const line of lines) {
+        if (!line.startsWith('data: ') || line === 'data: [DONE]') continue
+        const delta = JSON.parse(line.slice(6)).choices?.[0]?.delta?.content
+        if (delta) yield* parser.push(delta)
+      }
+    }
+  } finally {
+    reader.cancel().catch(() => {})
+  }
+  if (token.cancelled) return
+
+  for (const ev of parser.finish()) {
+    if (ev.type === 'done') {
+      push(history, { role: 'assistant', content: ev.thought.reply })
+      applyThought(ev.thought)
+    }
+    yield ev
+  }
+}
+
+const activeTurn = new WeakMap()  // ws -> cancellation token for the in-flight turn
+
+async function handleTurn(ws, userText) {
+  activeTurn.get(ws) && (activeTurn.get(ws).cancelled = true)  // barge-in via new turn
+  const token = { cancelled: false }
+  activeTurn.set(ws, token)
+
+  const t0 = Date.now()
+  ws.send(JSON.stringify({ type: 'transcript', text: userText }))
+  let meta = null
+  let seq = 0
+  let tFirst = 0
+  for await (const ev of thinkStream(userText, token, ws.data.history)) {
+    if (ev.type === 'meta') {
+      meta = ev.meta
+    } else if (ev.type === 'sentence') {
+      const wav = await synthesize(ev.text)
+      const visemes = await lipSync(wav, ev.text)
+      if (token.cancelled) {
+        console.log(`turn interrupted at chunk ${seq} — "${ev.text.slice(0, 40)}"`)
+        return
+      }
+      const mood = Object.keys(meta?.mood ?? {}).length ? meta.mood
+                 : EMOTION_MOOD[meta?.emotion] ?? {}
+      tFirst ||= Date.now()
+      ws.send(JSON.stringify({
+        type: 'speak', seq, sentence: ev.text,
+        emotion: meta?.emotion, mood, gesture: seq === 0 ? meta?.gesture ?? 'none' : 'none',
+        meter: store.meter, tier: tierOf(store.meter)[1],
+        visemes, audio: wav.toString('base64'),
+      }))
+      seq++
+    } else if (ev.type === 'done') {
+      ws.send(JSON.stringify({ type: 'speak_end' }))
+      console.log(`turn: first audio ${tFirst - t0}ms, total ${Date.now() - t0}ms, ${seq} chunk(s) — "${ev.thought.reply.slice(0, 60)}"`)
+    }
+  }
+}
+
+const MIME = { html: 'text/html', js: 'text/javascript', json: 'application/json',
+               glb: 'model/gltf-binary', png: 'image/png', css: 'text/css' }
+
+Bun.serve({
+  port: PORT,
+  idleTimeout: 120,
+  async fetch(req, server) {
+    const url = new URL(req.url)
+    if (url.pathname === '/ws') {
+      return server.upgrade(req, { data: { history: [] } })
+        ? undefined : new Response('upgrade failed', { status: 400 })
+    }
+    let path = url.pathname === '/' ? '/index.html' : url.pathname
+    const file = Bun.file(join(ROOT, path.slice(1)))
+    if (!(await file.exists())) return new Response('not found', { status: 404 })
+    const ext = path.split('.').pop()
+    return new Response(file, { headers: { 'Content-Type': MIME[ext] ?? 'application/octet-stream' } })
+  },
+  websocket: {
+    maxPayloadLength: 32 * 1024 * 1024,
+    async message(ws, raw) {
+      try {
+        const msg = JSON.parse(raw)
+        if (msg.type === 'audio') {
+          const bytes = Buffer.from(msg.data, 'base64')
+          const text = await transcribe(bytes)
+          if (!text || text.length < 2) {
+            ws.send(JSON.stringify({ type: 'error', error: 'heard nothing' }))
+            return
+          }
+          await handleTurn(ws, text)
+        } else if (msg.type === 'text') {
+          await handleTurn(ws, msg.text)
+        } else if (msg.type === 'interrupt') {
+          const token = activeTurn.get(ws)
+          if (token) token.cancelled = true
+        }
+      } catch (e) {
+        console.error(e)
+        ws.send(JSON.stringify({ type: 'error', error: String(e.message ?? e) }))
+      }
+    },
+  },
+})
+
+console.log(`lydia companion on http://localhost:${PORT}`)

@@ -1,0 +1,10 @@
+{
+  "scripts": {
+    "start": "bash server/run.sh",
+    "build": "bun build main.js --outfile bundle.js --minify",
+    "test": "bun test server/"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  }
+}

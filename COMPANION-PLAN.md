@@ -1,0 +1,230 @@
+# Lydia Companion — Plan
+
+Goal: turn the static Lydia viewer into an interactive, voice-driven animated
+companion — the Ani architecture, but 100% local on ArchBox (3x R9700, 96GB).
+
+## 1. What the Ani teardown tells us
+
+From the transcript, the gist (Grok companion system prompts), and the
+architecture diagram:
+
+**Pipeline** (per conversation turn):
+```
+mic → ASR → [context manager: persona prompt + memory + relationship meter]
+    → LLM → reply_text + emotion tags + avatar_actions + bg_prompt (JSON-ish)
+    → TTS (emotion-conditioned) → audio + synced avatar animation
+```
+
+**The LLM contract is the whole product.** Ani is "just" a system prompt that
+makes the model emit, alongside the reply text:
+- emotion tags inline (drives TTS delivery + face)
+- avatar action calls: `{curiosity, shyness, excitement, love, stress,
+  sadness, frustration}` × `{sway, peek, spin, tease}`
+- environment detection: `{"environment_change": bool, "environment_prompt",
+  "ambient_sound_prompt"}`
+- relationship meter deltas (+3..+10 compliments, -8..-14 rude), 0–100 across
+  5 states (zero/neutral/interested/attracted/intimate); meter tier selects
+  voice style and unlocks behavior
+
+**Failure modes to avoid** (all observed in the video):
+1. *State wipes* — users lost intimacy level 7 to an app update. Memory must
+   be durable, local, versioned. Ours is a file/DB we own.
+2. *Transcription loss* — voice → text → voice discards prosody/emotion.
+   Can't fully fix locally yet, but ASR that keeps some paralinguistics
+   (whisper gives us nothing here — accept for v1) + emotion-capable TTS
+   narrows the gap.
+3. *Tag leakage* — "she said giggles out loud." Post-processor must strip
+   stage directions from the TTS string; tags live in JSON fields, never in
+   the spoken text.
+4. *Latency* — every module serial = noticeable delay. Stream everything:
+   sentence-chunked TTS starts speaking while the LLM is still generating.
+5. *Blandness* — a system prompt alone is thin. We can go further locally:
+   persona file + evolving per-user knowledge base injected into context
+   (the video's "diverging knowledge bases" idea) — trivially done with files.
+
+## 2. Module map: Ani → our stack
+
+| Ani module          | Local equivalent                                             | Status |
+|---------------------|--------------------------------------------------------------|--------|
+| ASR                 | whisper.cpp (Vulkan, proven) default; evaluate Voxtral-Mini (vLLM) / Qwen3-Omni later — adapter speaks OpenAI `/v1/audio/transcriptions` so swap is config | **have** |
+| LLM                 | llama-swap :8082 — GLM-4.5-Air (or any resident model)       | **have** |
+| Context manager     | Bun orchestrator (WebSocket server), persona.md + memory store | build |
+| TTS                 | **Qwen3-TTS + cloned Lydia voice** (`~/Experiments/voice/qwen-tts-env`, ROCm, 1h53m reference audio, clone already proven) served OpenAI-style via qwen3-tts-server or thin FastAPI wrapper; Kokoro-82M as latency fallback | **have (wrap)** |
+| Avatar actions      | three.js: morph targets (TRI phonemes/expressions) + procedural + clips | build |
+| Vision analyzer     | optional later: webcam → Qwen-VL / SmolVLM on llama-swap     | defer |
+| Background gen      | optional later: local SDXL/Flux on a spare R9700             | defer |
+| Music service       | optional later                                               | defer |
+| User profile DB     | SQLite (or plain JSONL) — ours, never wiped                  | build |
+| Asset CDN           | local http server (already have)                             | have |
+
+## 3. The asset gap (what Grok can't do and we can)
+
+Current GLB is pre-baked bind-pose soup — fine for a statue, useless for
+animation. But `nif.py` already parses everything needed and we own the
+pipeline:
+
+**3a. Skinned export.** Export real glTF skinning: skeleton hierarchy from
+`skeleton_female.nif`, JOINTS_0/WEIGHTS_0 per vertex (we already read
+NiSkinData weights + partition weights — currently we *bake* them; instead
+emit them). Result: Lydia poseable in three.js at runtime.
+
+**3b. Face morphs — the killer feature.** Skyrim ships FaceGen `.tri` files
+with per-vertex morph deltas for the exact 996-vert head:
+- **phonemes** (visemes): Aah, BigAah, BMP, ChJSh, DST, Eee, Eh, FV, I, K,
+  N, Oh, OohQ, R, Th, W — game-quality lip sync data
+- **expressions**: mood morphs (happy, sad, angry, fear, ...) + BlinkL/R,
+  brow movement
+Parse TRI (documented format), emit as glTF morph targets on the head mesh.
+`SM_Astrid/Head/FemaleHead.tri` is on disk; vanilla one extractable from BSA
+(v105, lz4) if vertex order mismatches. Deltas apply cleanly to our
+facegen-morphed head as long as vertex count/order match (they derive from
+the same base head).
+
+**3c. Body animation, staged:**
+1. *Procedural idle* (cheap, ~90% of perceived life): breathing (chest
+   scale/spine bone), weight sway, head+eyes look-at cursor/camera, blink
+   timer, micro head motions while speaking. Pure three.js bone math.
+2. *Gesture clips*: retarget Mixamo clips to the Skyrim skeleton
+   (SkeletonUtils.retarget or a Blender pass) — wave, hair tuck, lean, spin.
+   Map to the avatar_actions vocabulary.
+3. ~~(Stretch)~~ ✅ **DONE 2026-07-26** — `hkx_anim.py` decodes SSE
+   hkaSplineCompressedAnimation directly (hkxc → XML → spline/40-bit-quat
+   decode ported from HavokLib). PrettyFemaleIdles' 5 idle loops decoded to
+   `anims/*.json`; viewer plays them with crossfade + random cycling,
+   look-at layered on top. ANY Skyrim animation is now importable —
+   P3 gesture clips come from this pipeline, not Mixamo retargeting.
+
+**3d. Clothes.** Extract her steel armor set (or any outfit) from BSAs —
+same NIF pipeline, worn meshes are skinned to the same skeleton. Needs the
+BSA extractor (~80 lines + lz4). Also fixes the current nudity.
+
+## 4. LLM output contract (v1)
+
+System prompt produces strict JSON per turn (llama.cpp grammar/json_schema
+enforced — no leakage by construction):
+
+```json
+{
+  "reply": "spoken text only, no stage directions",
+  "emotion": "warm|teasing|excited|soft|sad|neutral",
+  "gesture": "none|sway|tilt|lean_in|hair_tuck|wave|spin",
+  "expression": {"happy": 0.6, "surprise": 0.1},
+  "meter_delta": 3,
+  "memory_note": "optional fact worth persisting about the user"
+}
+```
+
+Orchestrator: applies meter, appends memory_note to the knowledge base,
+strips/validates, fans out — reply→TTS, emotion→TTS style + face, gesture→
+animation queue. Persona lives in `persona/lydia.md` (housecarl backstory,
+sworn-to-carry-your-burdens deadpan, loyalty arc); memory in
+`memory/user.jsonl` — injected into context each turn. Meter tiers gate tone
+exactly like the gist (neutral→warm→devoted housecarl).
+
+## 5. Latency budget (target: < 1.5s to first audio)
+
+```
+VAD/push-to-talk → whisper small/medium (Vulkan)     ~200-400ms
+LLM first sentence (GLM-Air streaming)               ~300-600ms
+Qwen3-TTS first sentence (ROCm)                      MEASURE — the P2 gate
+```
+**TTS engine sidequest** (`~/Experiments/voice/faster-qwen3-tts`, fork of
+andimarafioti/faster-qwen3-tts): port the CUDA-graph engine to ROCm/HIP for the
+R9700 (`torch.cuda.CUDAGraph` → hipGraph on ROCm-torch is the primary path;
+Vulkan only via the experimental qwentts.cpp GGML backend). AEON-7/qwen3-tts-server
+(OpenAI-style streaming server on the same engine) is the wrap candidate after.
+
+Measured default on this box (0.6B bf16, transformers path, MIOPEN_FIND_MODE=FAST):
+RTF 1.4 (0.71x realtime), ~5s per sentence, no streaming. Upstream 4090 baseline
+was 0.82x realtime → same class; CUDA graphs took it to 4.78x realtime / 156ms TTFA.
+
+Targets (median over 10 NOVEL sentences — never repeats, the MIOpen shape cache
+inflates repeat benchmarks — warm server, same clone prompt, bf16):
+- **Gate: ≥2x realtime (RTF ≤ 0.5) + TTFA ≤ 500ms streaming.** The qualitative
+  flip: synthesis outruns playback → gapless chained sentences; only the first
+  chunk's latency is ever perceived. Warm turn drops to ~llm + 0.5s ≈ 3s.
+- **Stretch: ≥3x realtime (RTF ≤ 0.33)** (~4x over default; upstream got 5.8x
+  on CUDA, ROCm overhead will eat some).
+
+Stream by sentence: TTS + viseme schedule per sentence while LLM continues.
+Viseme timing: Qwen3-TTS gives no phoneme durations → **Rhubarb lip-sync on
+each sentence wav is the primary path** (CPU, fraction-of-realtime, outputs
+phoneme track → map to TRI visemes). If Qwen RTF is too slow for chat, keep
+the cloned voice and fall back to Kokoro only if unacceptable — measure
+before deciding. All three services sit behind OpenAI-compatible endpoints
+so any swap is a config line, not a refactor.
+
+## 6. Phases (each independently verifiable)
+
+- **P0 — skinned GLB**: export joints/weights/skeleton; verify in three.js
+  by rotating a bone at runtime. *Done when: head turns without re-export.*
+  ✅ **DONE 2026-07-26** — 154 joints, 9 skinned meshes, IBMs from
+  skeleton_female.nif. Note: GLTFLoader sanitizes bone names
+  (`NPC Head [Head]` → `NPC_Head_Head`) — use sanitized names in runtime code.
+- **P1 — she's alive**: TRI morphs exported; procedural blink/breath/sway/
+  look-at. *Done when: idle Lydia tracks the cursor and blinks.*
+  ✅ **DONE 2026-07-26** — vanilla femalehead.tri (996v, exact match) pulled
+  via new `bsa.py` (SSE v105 + lz4) and `tri.py` (FRTRI003); 34 morph targets
+  on LydiaHeadHP (16 visemes, blinks, brows, squints, 7 moods, LookDown),
+  deltas transformed by the head-bone bind matrix. Viewer: blink cycle,
+  breathing, cursor look-at w/ micro-motion. `window.viewer.setMorph(name, v)`
+  is the runtime face API. Mood morphs overshoot at 1.0 — drive at ≤0.7.
+- **P2 — voice loop MVP**: push-to-talk → whisper → GLM persona (JSON
+  contract) → **Qwen3-TTS cloned Lydia voice** → audio + naive jaw-flap.
+  Bun WS server orchestrates; first task is benchmarking Qwen3-TTS RTF on
+  the R9700 (sentence-level). *Done when: spoken question → spoken answer
+  in HER voice < 3s.*
+- **P3 — real lip sync + emotion**: phoneme-timed visemes, expression
+  morphs from emotion field, gesture queue. *Done when: mouth shapes match
+  words; smile when teasing.*
+  ✅ **DONE 2026-07-27** — Rhubarb 1.14 (`server/rhubarb/`) per sentence wav,
+  Preston-Blair→TRI viseme map, replies stream sentence-chunked. Client plays
+  via AudioBufferSourceNode on the AudioContext clock (sample-accurate),
+  60ms lead, fast-attack/slow-release morph easing in the render loop.
+  Emotion→mood via server-side EMOTION_MOOD presets (model's own `mood` is
+  usually empty). TTS RTF fixed 5.5→1.4 on novel text (`MIOPEN_FIND_MODE=FAST`
+  in tts_server.py — default find mode re-searched conv solutions per novel
+  sentence length). Gesture queue still just `idle_switch` — richer gestures
+  moved to P5. REMEMBER: edits to main.js need `bun build main.js --outfile
+  bundle.js --minify` — index.html loads the bundle.
+- **P4 — memory + meter**: SQLite/JSONL profile, relationship meter with
+  tone tiers, durable across restarts. *Done when: she remembers yesterday.*
+  ✅ **DONE 2026-07-27** — `memory/user.jsonl` (memory_note per turn) +
+  `memory/state.json` (meter 0–100, `meter_delta` in schema, 4 tone tiers
+  injected into the system prompt). Verified: taught her a fact, restarted
+  the server, she used it unprompted. LLM now Gemma4-12B (Mike's pick —
+  nails character, no reasoning burn; llm turn ~2-3s).
+- **P5 — polish/optional**: clothes (BSA extractor + armor), Orpheus TTS
+  (emotive tags, laughs), Mixamo gesture clips, webcam vision, background
+  gen, barge-in (interrupt her mid-sentence).
+  Progress 2026-07-27:
+  - ✅ **Barge-in** — talk (or say()) over her cancels the turn: client stops
+    source + flushes queue + sends `interrupt`; server cancels the in-flight
+    sentence loop via per-socket token (also fires on any new turn).
+  - ✅ **LLM→TTS sentence streaming** — `thinkStream()` async generator:
+    llama.cpp `stream:true`, schema order emotion/mood/gesture → reply →
+    meter_delta/memory_note (llama.cpp grammar follows declaration order, so
+    face metadata arrives before the reply text and bookkeeping after), reply
+    string unescaped incrementally, sentences dispatched to TTS mid-generation.
+    `speak` chunks have no `last` flag anymore; `speak_end` closes the turn.
+    Warm-turn first audio 8–11s → **~6.5s** regardless of reply length.
+    Chunk gaps remain audible (RTF 1.4 < realtime) — closes when the
+    faster-qwen3-tts fork hits its ≥2x-realtime gate.
+  - Remaining: clothes (Mike researching armor options), gestures from HKX
+    one-shots, single-card model bake-off (Bonsai-27B / Gemma4-12B /
+    GLM-4.7-Flash / Ornith-1.0-9B), emotive TTS (hold for fork), vision/bg-gen
+    (parked).
+
+## 7. Open questions / risks
+
+- **TRI vertex-order match** vs our facegen head — verify first thing in P1;
+  fallback is BSA-extracting the exact vanilla tri (same base mesh).
+- **Kokoro phoneme timing granularity** — if too coarse, Rhubarb fallback.
+- **Skeleton retarget quality** for Mixamo clips — procedural-first design
+  means this can fail without blocking anything.
+- **VRAM budgeting** — whisper + LLM + TTS concurrently; trivial at 96GB but
+  llama-swap swap-outs could add latency; pin the companion model resident.
+- Voice: solved — cloned Lydia (1h53m game-dialogue reference). Open
+  question is only Qwen3-TTS generation speed per sentence on ROCm.
+- STT upgrade path: Voxtral-Mini on vLLM or Qwen3-Omni if whisper's flat
+  transcription feels limiting; not a v1 concern.

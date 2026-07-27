@@ -1,0 +1,27 @@
+# --- game-derived assets: extracted/converted Bethesda content, never publish ---
+lydia.glb
+lydia.html
+texcache/
+anims/*
+!anims/.gitkeep
+tts_samples/
+
+# --- personal state (conversation memory, relationship meter) ---
+memory/*
+!memory/.gitkeep
+
+# --- vendored third-party ---
+# Rhubarb Lip Sync binary distribution (download: github.com/DanielSWolf/rhubarb-lip-sync)
+server/rhubarb/
+# niftools NIF format spec, reference only (github.com/niftools/nifxml)
+nif.xml
+
+# --- build artifacts ---
+bundle.js
+node_modules/
+__pycache__/
+*.pyc
+
+# --- debris ---
+gpucore.*
+nohup.out

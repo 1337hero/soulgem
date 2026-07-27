@@ -1,0 +1,55 @@
+// Pipeline stage adapters: ASR, TTS, lip-sync. Each is a narrow async function so
+// a different service (streaming TTS fork, Voxtral ASR) is a swap here, not in the
+// orchestrator. Service endpoints are env-overridable.
+import { $ } from 'bun'
+import { join } from 'path'
+import { SHAPE_VISEME } from './protocol.ts'
+
+const WHISPER_URL = Bun.env.LYDIA_ASR_URL ?? 'http://127.0.0.1:8124/inference'
+const TTS_URL = Bun.env.LYDIA_TTS_URL ?? 'http://127.0.0.1:8123/speak'
+const RHUBARB = Bun.env.LYDIA_RHUBARB ?? join(import.meta.dir, 'rhubarb/rhubarb')
+
+// webm/opus bytes -> text
+export async function transcribe(audioBytes) {
+  const tmp = `/tmp/lydia-utt-${Date.now()}`
+  try {
+    await Bun.write(tmp + '.webm', audioBytes)
+    await $`ffmpeg -y -loglevel error -i ${tmp + '.webm'} -ar 16000 -ac 1 ${tmp + '.wav'}`
+    const form = new FormData()
+    form.append('file', Bun.file(tmp + '.wav'))
+    form.append('response_format', 'json')
+    const res = await fetch(WHISPER_URL, { method: 'POST', body: form })
+    if (!res.ok) throw new Error(`whisper ${res.status}`)
+    return (await res.json()).text.trim()
+  } finally {
+    await $`rm -f ${tmp + '.webm'} ${tmp + '.wav'}`.quiet()
+  }
+}
+
+// text -> wav bytes
+export async function synthesize(text) {
+  const res = await fetch(TTS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  })
+  if (!res.ok) throw new Error(`tts ${res.status}`)
+  return Buffer.from(await res.arrayBuffer())
+}
+
+// wav bytes + text -> viseme cues, or null to fall back to jaw-flap
+export async function lipSync(wav, text) {
+  const tmp = `/tmp/lydia-lip-${Date.now()}`
+  try {
+    await Bun.write(tmp + '.wav', wav)
+    await Bun.write(tmp + '.txt', text)
+    const out = await $`${RHUBARB} -f json --machineReadable -d ${tmp + '.txt'} ${tmp + '.wav'}`.quiet()
+    return JSON.parse(out.stdout.toString()).mouthCues
+      .map(c => ({ s: c.start, e: c.end, v: SHAPE_VISEME[c.value] ?? null }))
+  } catch (e) {
+    console.error('rhubarb failed, falling back to jaw-flap:', e.message ?? e)
+    return null
+  } finally {
+    await $`rm -f ${tmp + '.wav'} ${tmp + '.txt'}`.quiet()
+  }
+}
