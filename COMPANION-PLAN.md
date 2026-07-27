@@ -49,7 +49,7 @@ makes the model emit, alongside the reply text:
 | ASR                 | whisper.cpp (Vulkan, proven) default; evaluate Voxtral-Mini (vLLM) / Qwen3-Omni later — adapter speaks OpenAI `/v1/audio/transcriptions` so swap is config | **have** |
 | LLM                 | llama-swap :8082 — GLM-4.5-Air (or any resident model)       | **have** |
 | Context manager     | Bun orchestrator (WebSocket server), persona.md + memory store | build |
-| TTS                 | **Qwen3-TTS + cloned Lydia voice** (`~/Experiments/voice/qwen-tts-env`, ROCm, 1h53m reference audio, clone already proven) served OpenAI-style via qwen3-tts-server or thin FastAPI wrapper; Kokoro-82M as latency fallback | **have (wrap)** |
+| TTS                 | **Qwen3-TTS + cloned Lydia voice**, Vulkan/qwentts.cpp Q6_K — `~/Experiments/voice/qwen3-tts-fast` (RTF 0.233, 4.29x realtime, TTFA 280ms; `server.py` on :8123). Kokoro-82M fallback no longer needed | **DONE** |
 | Avatar actions      | three.js: morph targets (TRI phonemes/expressions) + procedural + clips | build |
 | Vision analyzer     | optional later: webcam → Qwen-VL / SmolVLM on llama-swap     | defer |
 | Background gen      | optional later: local SDXL/Flux on a spare R9700             | defer |
@@ -128,11 +128,12 @@ VAD/push-to-talk → whisper small/medium (Vulkan)     ~200-400ms
 LLM first sentence (GLM-Air streaming)               ~300-600ms
 Qwen3-TTS first sentence (ROCm)                      MEASURE — the P2 gate
 ```
-**TTS engine sidequest** (`~/Experiments/voice/faster-qwen3-tts`, fork of
-andimarafioti/faster-qwen3-tts): port the CUDA-graph engine to ROCm/HIP for the
-R9700 (`torch.cuda.CUDAGraph` → hipGraph on ROCm-torch is the primary path;
-Vulkan only via the experimental qwentts.cpp GGML backend). AEON-7/qwen3-tts-server
-(OpenAI-style streaming server on the same engine) is the wrap candidate after.
+**TTS engine sidequest — CLOSED 2026-07-27.** Original plan was to port the
+CUDA-graph engine to ROCm/HIP (hipGraph primary, Vulkan "experimental"). That
+assumption was **backwards**: hipGraph works fine but is irrelevant, because the
+PyTorch bottleneck is codec decode, not the talker. Vulkan/qwentts.cpp won by
+19x. Engine now lives at `~/Experiments/voice/qwen3-tts-fast` (see its README);
+the PyTorch fork is archived in that project's `docs/pytorch-fork-archive/`.
 
 Measured default on this box (0.6B bf16, transformers path, MIOPEN_FIND_MODE=FAST):
 RTF 1.4 (0.71x realtime), ~5s per sentence, no streaming. Upstream 4090 baseline
@@ -146,17 +147,85 @@ inflates repeat benchmarks — warm server, same clone prompt, bf16):
 - **Stretch: ≥3x realtime (RTF ≤ 0.33)** (~4x over default; upstream got 5.8x
   on CUDA, ROCm overhead will eat some).
 
-**Sidequest finding 2026-07-27 (Mike):** Vulkan F32 GGUF path hits **RTF
-0.315 (3.2x realtime)** on a real 4.9s utterance — through the gate, nearly
-at stretch. The PyTorch path's true bottleneck is CODEC DECODE (91% of wall,
-30.4s of 33.5s); the talker alone is RTF 0.63. Phase-4 conclusions were drawn
-from 8-token workloads too short for the codec to dominate (same benchmark
-trap as our MIOpen same-sentence RTF lie). Plan §5's "hipGraph primary /
-Vulkan experimental" assumption is INVERTED — Vulkan is the fast path on AMD;
-sdpa-codec split (eager talker for sampling correctness, sdpa deterministic
-codec) may rescue PyTorch to ~4s but still loses. Remaining gates: listening
-review of F32 GGUF clone quality + adapter gaps. If it lands: warm turn
-~6.5s → ~3s, sentence chaining goes gapless.
+**Sidequest RESOLVED 2026-07-27 — P2 gate PASSES on Vulkan.** Verified numbers,
+10 novel sentences, warm, same clone ref, one R9700:
+
+| | RTF | TTFA | gate |
+| --- | --- | --- | --- |
+| Vulkan F32 GGUF, `synthesize` | **0.358** (2.79x) | — | pass |
+| Vulkan F32 GGUF, `stream` @ `codec_chunk_sec=0.5` | 0.383 | **338ms** (379 worst) | pass |
+| Over HTTP through the drop-in server | 0.368–0.402 | **334ms** (357 worst) | pass |
+| PyTorch graphs+eager, same sentence | 6.86 | — | fail ~19x |
+
+Stretch (RTF ≤0.33) NOT met in any config. Corrections to the earlier note:
+the 0.315 figure came from differencing a load-only run and flattered it ~12%
+— **0.358 is the real number**. And the sdpa-codec split idea is **REJECTED by
+measurement**, not merely insufficient: sdpa codec decode 29.32s vs eager
+30.43s, a 3.6% difference. MIOpen kernel search (`MIOPEN_FIND_ENFORCE=SEARCH`)
+also did nothing (30.10s). Neither is a kernel problem.
+
+The real PyTorch bottleneck is CODEC DECODE (91% of wall, 30.4s of 33.5s;
+talker alone RTF 0.63) and it is **superlinear**: 8 frames → 0.018 s/frame but
+61 frames → 0.49 s/frame — 7.6x the frames, 214x the time, ~27x worse than
+linear. `speech_tokenizer.decode` gets the whole sequence in one call.
+qwentts.cpp instead exposes `codec_chunk_sec` + `codec_left_context_sec` and
+decodes in bounded chunks. That difference, not GPU capability, is the 19x.
+Phase-4's ROCm conclusions came from 8-token workloads too short for the codec
+to dominate — same benchmark trap as our MIOpen same-sentence RTF lie.
+
+§5's "hipGraph primary / Vulkan experimental" assumption is INVERTED: Vulkan is
+the fast path on AMD. Listening review done (Mike, 10 clips + A/B vs PyTorch —
+"all sound normal"); samples kept at
+`~/Experiments/voice/qwen3-tts-fast/samples/`.
+
+**Wiring: the TTS engine now lives in its own consolidated project**,
+`~/Experiments/voice/qwen3-tts-fast/` (see its README). Its `server.py` is a
+drop-in for `tts_server.py` — same `POST /speak {"text"} -> audio/wav` and
+`GET /health` on the same port 8123, so no client changes. Adds
+`POST /speak_stream` (chunked) for the low-TTFA path. Needs no torch, no ROCm:
+
+```bash
+cd ~/Experiments/voice/qwen3-tts-fast && runtime/bin/python server.py
+```
+
+Loads in **0.8s** on the Q8_0 talker. Env: `TTS_PORT` (8123), `TTS_REF`,
+`TTS_GGUF_DIR`, `TTS_TALKER`, `TTS_CHUNK_SEC` (0.5),
+`GGML_VK_VISIBLE_DEVICES` (1 = PCI 0000:06:00.0 — Vulkan and HIP ordinals
+differ, check `rocm-smi` before changing). Deliberately NOT duplicated into
+this repo: one copy, in the TTS project. **Wired 2026-07-27**: run.sh launches
+it (old torch tts_server.py kept as fallback); Lydia's voice_ref moved to the
+TTS project's `voices/`. Verified in-stack: RTF 0.245–0.26 over HTTP.
+
+**Quantisation hits the STRETCH target** (added 2026-07-27). Default is now
+**Q6_K: RTF 0.233 (4.29x realtime), TTFA 280ms**, 0.72GB vs F32's 3.41GB, load
+0.63s vs 2.27s — smaller AND faster, less memory bandwidth per token. Mike A/B'd
+Q6_K vs Q8_0 and heard no difference (3 sentences each), so the faster one wins;
+Q8_0 stays as fallback since Q6_K's RMS does measure lower (0.0629 vs 0.0734).
+Over HTTP with Q6_K: median RTF 0.274 (3.65x realtime).
+
+Turn budget with TTS at 334ms TTFA: whisper 200-400 + LLM 300-600 + TTS 334 =
+**0.83–1.33s to first audio**, inside the 1.5s target. Warm turn ~6.5s → ~3s,
+sentence chaining gapless.
+
+**Post-wiring reality check (2026-07-27): Rhubarb was the unbudgeted stage.**
+§5's "CPU, fraction-of-realtime" claim is WRONG for the default recognizer:
+pocketSphinx ≈ 2.3s lazy init + 0.79×audio per invocation, pinned to ONE core
+(`--threads` only splits across VAD utterances — useless on single sentences).
+phonetic is ~5x faster (RTF 0.13–0.23) but ignores the transcript; Mike judged
+pocketSphinx's mouth movement better. The fix wasn't speed but scheduling: 8
+concurrent rhubarbs cost only 15% more wall than 1, so companion.js now runs
+per-sentence synth+lipsync concurrently (sends stay seq-ordered via a promise
+chain; barge-in bails before synth/lipsync/send). Result: chaining is gapless
+(4 chunks / 13.9s audio all delivered by 8.4s wall) and text-path warm first
+audio is ~6.1–6.5s, all of it seq-0's irreducible LLM + TTS + pocketSphinx on
+the first sentence. Levers if that ever matters: `LYDIA_RHUBARB_RECOGNIZER=
+phonetic` (~3s faster) or phonetic-for-seq-0 hybrid.
+
+Caveats: F32 GGUF (Q8_0 untested, likely faster); requests are serialised
+behind a lock since `qt_synthesize` is not reentrant per context; the voice ref
+is re-encoded per call because cached refs need qwentts.cpp ABI v2, which the
+wrapper-compatible build does not export (see the fork-skew note below);
+`do_sample=False` runs away to the token cap on this path — never use greedy.
 
 Stream by sentence: TTS + viseme schedule per sentence while LLM continues.
 Viseme timing: Qwen3-TTS gives no phoneme durations → **Rhubarb lip-sync on
@@ -221,7 +290,7 @@ so any swap is a config line, not a refactor.
     `speak` chunks have no `last` flag anymore; `speak_end` closes the turn.
     Warm-turn first audio 8–11s → **~6.5s** regardless of reply length.
     Chunk gaps remain audible (RTF 1.4 < realtime) — closes when the
-    faster-qwen3-tts fork hits its ≥2x-realtime gate.
+    the Vulkan TTS engine hit its ≥2x-realtime gate (done: RTF 0.253).
   - ✅ **Clothes** — Girl's Travel Outfit (CBBE) from Vortex staging via new
     `data_roots` multi-root texture resolution. The outfit ships its own CBBE
     body + hands (shaderType 5, standard female texture paths → existing Bijin
@@ -244,7 +313,20 @@ so any swap is a config line, not a refactor.
     Recommendation: GLM-4.7-Flash (speed + voice) after tightening memory_note
     guidance; needs a llama-swap entry (currently only in /mnt/storage backup).
     Gemma4-12B stays a safe default. Mike judges final voice.
-  - Remaining: emotive TTS (hold for faster-qwen3-tts fork), vision/bg-gen
+  - ✅ **GLM-4.7-Flash switch DONE 2026-07-27** — Mike picked it on a rematch
+    over the real soul prompt (96 t/s vs Gemma's 36, LLM turn 1.2s vs 3.2s,
+    saltier voice). Gotcha: bare GLM burns the whole budget on reasoning and
+    returns empty content — `enable_thinking:false` REQUIRED (same kwarg as
+    Gemma). Harness tightened alongside: memory_note FIELD_DOCS now forbids
+    exchange-summaries/re-notes (junk notes 3/6 → 0/6 on the bench), reply
+    doc asks for short spoken sentences (GLM's long sentences were re-opening
+    chunk gaps via rhubarb), persona pins sword-and-shield + no invented
+    places. Note judgment still worse than Gemma's — an occasional confused
+    note lands; cortex-lite consolidation remains the real fix.
+  - ✅ **LLM warmup at launch** — companion.js fires a 1-token request on
+    start so llama-swap loads the soul's model (~22s GLM) during stack boot,
+    not on the first chat.
+  - Remaining: emotive TTS (Qwen3-TTS exposes no emotion conditioning on the GGML path), vision/bg-gen
     (parked).
 
 ## 7. Direction: souls as swappable packs (2026-07-27, Mike's musing)
@@ -375,11 +457,16 @@ Weightiest first:
   Mixamo clips for the non-Skyrim skeleton. Pipeline change needed: move
   SHAPE_VISEME (Rhubarb→morph-name map) into per-soul config.json so bodies
   with non-TRI morph names plug in.
-- **Streaming TTS changes viseme timing.** Rhubarb needs a complete sentence
-  wav; the fork's chunked streaming (TTFA 500ms) delivers audio before the
-  wav exists. Options: run rhubarb on the full sentence in parallel and
-  accept ~200ms viseme lag, or switch to phoneme timings from the TTS itself
-  if the fork exposes them. Decide when the fork lands.
+- **Streaming TTS changes viseme timing — mostly dissolved 2026-07-27.**
+  Because RTF is 0.358, synthesis outruns playback by ~2.8x, so sentence N+1
+  can be fully synthesised via `/speak` (complete wav, exact Rhubarb visemes,
+  zero lag) while sentence N is still playing. Only the **first** sentence of a
+  turn needs `/speak_stream`, and only it carries the viseme-lag tradeoff.
+  Two options for that one sentence: accept ~330ms of generic/idle mouth before
+  visemes lock on, or make the first sentence short so `/speak` alone lands
+  inside budget (a 2s greeting synthesises in ~0.7s). Prefer the latter where
+  the soul's opener can be scripted short. qwentts.cpp exposes no phoneme
+  durations, so Rhubarb stays the primary path either way.
 - **Per-model reasoning knobs are folklore.** enable_thinking (Gemma/Qwen)
   vs reasoning_effort (gpt-oss) vs nothink templates — each new soul model
   needs a probe before it behaves. config.json carries the kwargs but nothing
@@ -387,9 +474,10 @@ Weightiest first:
 - **Meter calibration varies by model** (Gemma +3 where GLM says +8 for the
   same praise). Fine single-model; a soul that switches models inherits a
   meter scored on a different scale.
-- **memory_note quality** — GLM writes notes on 4/6 turns; junk accumulates
-  until cortex-lite's consolidation exists. The 40-note prompt cap bounds the
-  damage meanwhile.
+- **memory_note quality** — tightened FIELD_DOCS (no exchange-summaries, no
+  re-notes, default null) cut GLM's junk notes 3/6 → 0/6 on the bench, but an
+  occasional confused note still lands live; cortex-lite consolidation remains
+  the real fix. The 40-note prompt cap bounds the damage meanwhile.
 - **Model swap latency** — llama-swap cold-load on first turn after idle
   (~10s Gemma, ~70s big models). Pin the soul's model resident, or accept
   a slow greeting.
@@ -400,3 +488,18 @@ Weightiest first:
   VOICE is invisible. Voxtral-Mini / Qwen3-Omni remain the upgrade path.
 - **bundle.js is still a manual build step** — documented everywhere, but
   one forgotten `bun run build` silently runs old client code again.
+- **qwentts.cpp fork skew is a maintenance trap** (new 2026-07-27). Three
+  repos, mutually incompatible: the wrapper `qwentts-cpp-python` 0.3.1 declares
+  `QT_ABI_VERSION = 2` and its params struct includes `codec_chunk_sec` /
+  `codec_left_context_sec`; `andimarafioti/qwentts.cpp` (b7d601f, 2026-05-20)
+  has those fields but **not** `qt_extract_voice_ref`, so cached voice refs and
+  the `faster_qwen3_tts` `backend="ggml"` adapter path fail;
+  `ServeurpersoCom/qwentts.cpp` (35ebe537, 2026-07-25) is at
+  `QT_ABI_VERSION 4`, **has** `qt_extract_voice_ref`, but dropped
+  `codec_chunk_sec` from the struct, so the wrapper reads shifted offsets and
+  synthesis dies with `ref_spk_dim 1850574576 mismatches talker hidden 1024`.
+  Working combination is the andimarafioti fork + wrapper via the **direct**
+  `qwentts_cpp.QwenTTS` API, which is what `tts_server_vulkan.py` uses. Do not
+  upgrade either side independently, and pin both revisions. Upstream's newer
+  tree also builds a `tts-server` binary and a `qt_batch_worker` symbol —
+  worth revisiting if concurrent request handling is ever needed.
