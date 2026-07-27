@@ -146,6 +146,18 @@ inflates repeat benchmarks — warm server, same clone prompt, bf16):
 - **Stretch: ≥3x realtime (RTF ≤ 0.33)** (~4x over default; upstream got 5.8x
   on CUDA, ROCm overhead will eat some).
 
+**Sidequest finding 2026-07-27 (Mike):** Vulkan F32 GGUF path hits **RTF
+0.315 (3.2x realtime)** on a real 4.9s utterance — through the gate, nearly
+at stretch. The PyTorch path's true bottleneck is CODEC DECODE (91% of wall,
+30.4s of 33.5s); the talker alone is RTF 0.63. Phase-4 conclusions were drawn
+from 8-token workloads too short for the codec to dominate (same benchmark
+trap as our MIOpen same-sentence RTF lie). Plan §5's "hipGraph primary /
+Vulkan experimental" assumption is INVERTED — Vulkan is the fast path on AMD;
+sdpa-codec split (eager talker for sampling correctness, sdpa deterministic
+codec) may rescue PyTorch to ~4s but still loses. Remaining gates: listening
+review of F32 GGUF clone quality + adapter gaps. If it lands: warm turn
+~6.5s → ~3s, sentence chaining goes gapless.
+
 Stream by sentence: TTS + viseme schedule per sentence while LLM continues.
 Viseme timing: Qwen3-TTS gives no phoneme durations → **Rhubarb lip-sync on
 each sentence wav is the primary path** (CPU, fraction-of-realtime, outputs
