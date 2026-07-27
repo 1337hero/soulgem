@@ -265,6 +265,47 @@ specs/vera-cortex-implementation.md — a full Rust memory-graph daemon design
 event-driven consolidation, adapted from spacebot). That spec is the natural
 "real memory" upgrade path for Soulgem's Store seam.
 
+## 7b. Memory research (2026-07-27): three systems examined
+
+**Hermes "holographic"** (NousResearch): opt-in SQLite plugin, ~2k LOC. Real
+VSA/HRR phase-vector math but atoms are SHA-256 token hashes — no semantics,
+synonyms orthogonal; contributes 30% of one ranking score and numpy isn't
+even a default dep, so stock installs degrade to FTS5+Jaccard. Hermes's real
+daily memory: two char-capped markdown files + top-5 FTS prefetch injected
+into the user message per turn. Lesson: the prefetch pattern is the useful
+part; the holographic layer is branding.
+
+**claude-explorations cortex** (Mike's own, Go, WORKING code + tests):
+SQLite+FTS5+Ollama-embedding hybrid, nightly consolidate(Haiku merge/relate)
+→ decay → prune → reindex → bulletin(500-word MEMORY.md regenerated). Honest
+read: a solid dedup-and-summarize pipeline; the "graph" only encodes
+dedup history, centrality is computed but never read, no runtime retrieval —
+injection is one bulletin at session start. The philosophy is the treasure:
+identity exempt from decay/merge; somatic markers (intensity ≥4 never
+decays — "what hits hardest sticks longest"); generated-over-accumulated
+(self-description re-synthesized nightly, never accumulated); access resets
+decay (being remembered keeps memories alive). Persona is compiled into the
+binary — real fork cost.
+
+**vera-cortex spec** (unbuilt Rust): spacebot-derived — 8 memory types,
+6 edge types, LanceDB+fastembed, RRF hybrid search, event-driven. The
+maximal version.
+
+**Proposed: cortex-lite behind the Store seam** (per-soul, soul-generic):
+- bun:sqlite (built into Bun, zero deps) + FTS5 per soul: typed notes
+  (identity/relationship/preference/event/insight) + emotion/intensity
+  columns — the turn's `emotion` field gives somatic markers for free.
+- Read path, two tiers: (1) always-injected ~300-word BULLETIN regenerated
+  by the RESIDENT LOCAL MODEL when idle (session end / nightly — GPU is free
+  between conversations, no API cost, persona-templated not compiled-in);
+  (2) per-turn top-3-5 FTS recall queried with the user's utterance,
+  injected like Hermes prefetch.
+- Maintenance: decay ×0.95 per run for old-untouched-low-intensity,
+  identity/relationship exempt, local-LLM merge decisions, access resets
+  decay.
+- v2 later: embeddings (fastembed/Ollama) for hybrid recall; v3 = the Rust
+  cortex daemon if scale ever demands it. JSONL migration is trivial.
+
 ## 8. Open questions / risks
 
 - **TRI vertex-order match** vs our facegen head — verify first thing in P1;
