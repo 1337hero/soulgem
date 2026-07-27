@@ -324,6 +324,12 @@ Weightiest first:
   rendered character, animations, and screenshots are Bethesda-derived. A
   public soulgem.ai needs a non-Skyrim demo soul (own body model, synthetic
   voice) — the example soul has a persona but no legal body/voice yet.
+  NOTE: Creation Kit characters DON'T solve this (your design, their meshes).
+  Truly-owned path: VRoid Studio → VRM (free, standardized viseme/blink
+  blendshapes, three.js-loadable) + Qwen VoiceDesign synthetic voice +
+  Mixamo clips for the non-Skyrim skeleton. Pipeline change needed: move
+  SHAPE_VISEME (Rhubarb→morph-name map) into per-soul config.json so bodies
+  with non-TRI morph names plug in.
 - **Streaming TTS changes viseme timing.** Rhubarb needs a complete sentence
   wav; the fork's chunked streaming (TTFA 500ms) delivers audio before the
   wav exists. Options: run rhubarb on the full sentence in parallel and
