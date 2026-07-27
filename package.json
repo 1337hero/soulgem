@@ -1,4 +1,5 @@
 {
+  "name": "soulgem",
   "scripts": {
     "start": "bash server/run.sh",
     "build": "bun build main.js --outfile bundle.js --minify",

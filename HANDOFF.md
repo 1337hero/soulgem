@@ -1,7 +1,8 @@
 # Handoff: Lydia Companion — P0–P4 done, P5 underway
 
-Project: `~/Experiments/lydia-viewer` — Skyrim's Lydia as a fully-local
-voice-driven companion (3x R9700). Git repo since 2026-07-27; game-derived
+Project: `~/Experiments/soulgem` (**Soulgem** / soulgem.ai — renamed from
+lydia-viewer 2026-07-27) — swappable-soul local voice companions; first soul
+is Skyrim's Lydia (3x R9700). Git repo since 2026-07-27; game-derived
 assets, personal memory, and vendored rhubarb are gitignored (rebuild via
 build_glb.py/hkx_anim.py, rhubarb via GitHub release). Never revert
 unexplained changes — Mike edits in-tree mid-session.

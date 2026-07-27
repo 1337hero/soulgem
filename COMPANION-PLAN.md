@@ -1,4 +1,4 @@
-# Lydia Companion — Plan
+# Soulgem (né Lydia Companion) — Plan
 
 Goal: turn the static Lydia viewer into an interactive, voice-driven animated
 companion — the Ani architecture, but 100% local on ArchBox (3x R9700, 96GB).

@@ -1,8 +1,10 @@
-# lydia-viewer
+# Soulgem
 
-Lydia (Bijin Warmaidens) rendered from Skyrim SE game files in the browser via
-three.js — and a fully-local voice companion: push-to-talk → whisper →
-Gemma persona → cloned-voice TTS → lip-synced, animated reply. Runs entirely
+**soulgem.ai** — put a soul in anything. Fully-local voice-driven companions
+built from game characters: push-to-talk → whisper → LLM persona →
+cloned-voice TTS → lip-synced, animated reply in the browser. Persona, voice,
+model, and body are all swappable — the first soul is Lydia (Bijin
+Warmaidens), rendered from Skyrim SE game files via three.js. Runs entirely
 on this machine (3x R9700).
 
 ## Run the companion
