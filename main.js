@@ -117,7 +117,8 @@ async function loadAnims() {
       }))
     } catch { return }
   }
-  clipNames = Object.keys(clips).filter(n => !n.startsWith('gesture_'))  // idle pool
+  // idle pool: everything except one-shot gestures and talking body language
+  clipNames = Object.keys(clips).filter(n => !n.startsWith('gesture_') && !n.startsWith('talk_'))
   if (clipNames.length) {
     cur = { clip: clips[clipNames[0]], t: 0, name: clipNames[0] }
     scheduleSwitch()
@@ -385,6 +386,13 @@ async function playNext() {
     } else if (msg.gesture && msg.gesture !== 'none' && clips['gesture_' + msg.gesture]) {
       playGesture('gesture_' + msg.gesture)
     }
+  }
+  // talking body language: a dialogue one-shot per chunk unless a gesture is playing
+  if (!gestureReturn) {
+    const angry = msg.emotion === 'annoyed' || (msg.mood?.MoodAnger ?? 0) > 0.2
+    const pool = Object.keys(clips).filter(n =>
+      angry ? n.startsWith('talk_angry') : (n.startsWith('talk_') && !n.startsWith('talk_angry')))
+    if (pool.length && Math.random() < 0.8) playGesture(pool[Math.floor(Math.random() * pool.length)])
   } else {
     captionEl.innerHTML += ' ' + msg.sentence
   }
