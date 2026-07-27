@@ -25,11 +25,6 @@
     overflow: hidden;
   }
   #view { width: 100%; height: 100%; display: block; touch-action: none; }
-  #title {
-    position: absolute; top: 16px; left: 20px; pointer-events: none;
-  }
-  #title h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.04em; color: #e8e4d8; }
-  #title p { font-size: 12px; color: #8b8fa0; margin-top: 2px; }
   #spin {
     position: absolute; bottom: 14px; right: 16px;
     background: rgba(255,255,255,0.07); color: #cfd2dc;
@@ -37,14 +32,37 @@
     padding: 6px 14px; font-size: 12px; cursor: pointer;
   }
   #spin:hover { background: rgba(255,255,255,0.14); }
-  #talk {
+  /* talk button and text input share the same slot — they swap, so the bottom
+     row never shifts. #modeBtn toggles between them. */
+  #composer {
     position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 8px;
+  }
+  #talk {
     background: rgba(120,40,50,0.35); color: #e8e4d8;
     border: 1px solid #7a4a52; border-radius: 10px;
     padding: 10px 22px; font-size: 13px; cursor: pointer; user-select: none;
   }
   #talk.rec { background: rgba(200,60,70,0.65); border-color: #c85a62; }
   #talk.busy { opacity: 0.55; pointer-events: none; }
+  #textin {
+    width: 380px; background: rgba(0,0,0,0.35); color: #e8e4d8;
+    border: 1px solid #7a4a52; border-radius: 10px;
+    padding: 10px 14px; font-size: 13px; font-family: inherit; outline: none;
+    line-height: 15px;   /* inputs size their own content box — pin it to #talk's */
+  }
+  #textin:focus { border-color: #c85a62; background: rgba(0,0,0,0.5); }
+  #textin::placeholder { color: #6b6f80; }
+  /* same padding/size/radius as #talk so the two line up; only the fill stays
+     neutral to keep it secondary */
+  #modeBtn {
+    background: rgba(255,255,255,0.07); color: #cfd2dc;
+    border: 1px solid #3a3e4d; border-radius: 10px;
+    padding: 10px 22px; font-size: 13px; cursor: pointer;
+    min-width: 65px;     /* keyboard and mic glyphs differ in width — no jitter on toggle */
+  }
+  #modeBtn:hover { background: rgba(255,255,255,0.14); }
+  .hidden { display: none !important; }
   #caption {
     position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%);
     max-width: 72%; text-align: center; font-size: 14px; line-height: 1.45;
@@ -61,7 +79,7 @@
     color: #6b6f80; pointer-events: none;
   }
   #meter {
-    position: absolute; bottom: 16px; right: 20px; font-size: 11px;
+    position: absolute; top: 16px; right: 20px; font-size: 11px;
     color: #6b6f80; pointer-events: none; letter-spacing: 0.04em;
   }
 </style>
@@ -69,13 +87,17 @@
 <body>
   <div id="frame">
     <canvas id="view"></canvas>
-    <div id="title"><h1>Lydia</h1><p>Housecarl of Whiterun &middot; sworn to carry your burdens</p></div>
     <div id="loading">summoning housecarl&hellip;</div>
-    <div id="hint">drag to orbit &middot; scroll to zoom &middot; hold <b>T</b> or the button to talk</div>
+    <div id="hint">drag to orbit &middot; scroll to zoom &middot; hold <b>T</b> to talk &middot; <b>I</b> to type</div>
     <div id="caption"></div>
     <div id="meter"></div>
     <button id="spin">rotate</button>
-    <button id="talk">&#127908; hold to talk</button>
+    <div id="composer">
+      <button id="modeBtn" title="switch between voice and text (I / Esc)">&#9000;</button>
+      <button id="talk">&#127908; hold to talk</button>
+      <input id="textin" class="hidden" type="text" autocomplete="off"
+             placeholder="say something&hellip;  (Enter to send, Esc for voice)">
+    </div>
   </div>
   <script type="module" src="bundle.js"></script>
 </body>

@@ -330,6 +330,9 @@ function resize() {
 const talkBtn = document.getElementById('talk')
 const captionEl = document.getElementById('caption')
 const meterEl = document.getElementById('meter')
+const showMeter = (meter, tier) => {
+  meterEl.textContent = meter == null ? '' : `regard ${meter}/100 · ${tier}`
+}
 let ws = null
 let recorder = null
 let recChunks = []
@@ -342,7 +345,9 @@ function connectWS() {
   ws = new WebSocket(`ws://${location.host}/ws`)
   ws.onmessage = e => {
     const msg = JSON.parse(e.data)
-    if (msg.type === 'transcript') {
+    if (msg.type === 'state') {
+      showMeter(msg.meter, msg.tier)
+    } else if (msg.type === 'transcript') {
       if (speaking) { stopSpeaking(); talkBtn.classList.add('busy') }
       captionEl.innerHTML = `<span class="you">"${msg.text}"</span>`
     } else if (msg.type === 'speak') {
@@ -413,7 +418,7 @@ async function playNext() {
   playingMsg = msg
   if (msg.seq === 0) {
     captionEl.innerHTML = `${captionEl.innerHTML.match(/<span[^>]*>.*?<\/span>/)?.[0] ?? ''}${msg.sentence}`
-    if (msg.meter !== undefined) meterEl.textContent = `regard ${msg.meter}/100 · ${msg.tier}`
+    showMeter(msg.meter, msg.tier)
     setMood(msg.mood)
     if (msg.gesture === 'idle_switch' && clipNames.length > 1) {
       const others = clipNames.filter(n => clips[n] !== cur?.clip)
@@ -481,6 +486,20 @@ function updateMouth() {
   }
 }
 
+// Every turn (voice, typed, or viewer.say) goes through here: barge-in over a
+// reply in flight, then send and show the pending state.
+function sendTurn(payload) {
+  if (!ws || ws.readyState !== 1) return false
+  if (speaking || talkBtn.classList.contains('busy')) {
+    ws.send(JSON.stringify({ type: 'interrupt' }))
+    stopSpeaking()
+  }
+  ws.send(JSON.stringify(payload))
+  talkBtn.classList.add('busy')
+  captionEl.textContent = '…'
+  return true
+}
+
 async function startRec() {
   if (!ws || ws.readyState !== 1) return
   // barge-in: talking over her (or over a pending reply) cancels the turn
@@ -497,6 +516,7 @@ async function startRec() {
     const blob = new Blob(recChunks, { type: 'audio/webm' })
     if (blob.size < 2000) return  // too short
     const b64 = btoa(String.fromCharCode(...new Uint8Array(await blob.arrayBuffer())))
+    // interrupt already fired in startRec; just send and mark pending
     talkBtn.classList.add('busy')
     captionEl.textContent = '…'
     ws.send(JSON.stringify({ type: 'audio', data: b64 }))
@@ -513,8 +533,42 @@ function stopRec() {
 talkBtn.addEventListener('pointerdown', startRec)
 talkBtn.addEventListener('pointerup', stopRec)
 talkBtn.addEventListener('pointerleave', stopRec)
-window.addEventListener('keydown', e => { if (e.key === 't' && !e.repeat) startRec() })
-window.addEventListener('keyup', e => { if (e.key === 't') stopRec() })
 
-// text input path for testing without a mic
-window.viewer.say = text => ws?.send(JSON.stringify({ type: 'text', text }))
+// ---- text input mode ----
+// The talk button and the input swap in the same slot; 'i' opens, Esc returns
+// to voice. Choice persists so a typed session survives a reload.
+const textEl = document.getElementById('textin')
+const modeBtn = document.getElementById('modeBtn')
+
+function setTextMode(on) {
+  textEl.classList.toggle('hidden', !on)
+  talkBtn.classList.toggle('hidden', on)
+  modeBtn.innerHTML = on ? '&#127908;' : '&#9000;'   // mic : keyboard
+  localStorage.setItem('soulgem.textMode', on ? '1' : '0')
+  if (on) textEl.focus()
+  else textEl.blur()
+}
+setTextMode(localStorage.getItem('soulgem.textMode') === '1')
+
+modeBtn.addEventListener('click', () => setTextMode(textEl.classList.contains('hidden')))
+
+textEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const text = textEl.value.trim()
+    if (text && sendTurn({ type: 'text', text })) textEl.value = ''
+  } else if (e.key === 'Escape') {
+    setTextMode(false)
+  }
+})
+
+// Push-to-talk keys must never fire while typing — 't' appears in most words.
+const typing = e => e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA'
+window.addEventListener('keydown', e => {
+  if (typing(e)) return
+  if (e.key === 't' && !e.repeat) startRec()
+  else if (e.key === 'i' && !e.repeat) { e.preventDefault(); setTextMode(true) }
+})
+window.addEventListener('keyup', e => { if (!typing(e) && e.key === 't') stopRec() })
+
+// console path, same barge-in behavior as the UI
+window.viewer.say = text => sendTurn({ type: 'text', text })
