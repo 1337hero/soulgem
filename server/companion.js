@@ -180,6 +180,16 @@ Bun.serve({
   },
   websocket: {
     maxPayloadLength: 32 * 1024 * 1024,
+    open(ws) {
+      // meter otherwise only rides the seq-0 speak chunk, so a fresh page shows
+      // nothing until she talks. Null when the soul runs meterless.
+      const on = CFG.meter !== false
+      ws.send(JSON.stringify({
+        type: 'state',
+        meter: on ? store.meter : null,
+        tier: on ? tierOf(store.meter)[1] : null,
+      }))
+    },
     async message(ws, raw) {
       try {
         const msg = JSON.parse(raw)

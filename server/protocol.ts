@@ -91,6 +91,8 @@ export function outputFormatDoc() {
 export type Viseme = { s: number; e: number; v: string | null }
 
 export type ServerMsg =
+  // sent once on connect so a fresh page shows current state before she speaks
+  | { type: 'state'; meter: number | null; tier: string | null }
   | { type: 'transcript'; text: string }
   | { type: 'speak'; seq: number; sentence: string; emotion?: string
       mood: Record<string, number>; gesture: string; meter: number
