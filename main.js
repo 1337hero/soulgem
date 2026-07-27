@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+import { GroundedSkybox } from 'three/addons/objects/GroundedSkybox.js'
 import { MOOD_KEYS, VISEME_KEYS } from './server/protocol.ts'
 
 const canvas = document.getElementById('view')
@@ -24,6 +25,7 @@ controls.target.set(0, 1.05, 0)
 controls.enableDamping = true
 controls.minDistance = 0.35
 controls.maxDistance = 6
+controls.maxPolarAngle = Math.PI / 2 - 0.03  // never below the floor
 
 // lighting: warm key, cool fill, rim
 const key = new THREE.DirectionalLight(0xfff1e0, 2.5)
@@ -37,12 +39,42 @@ rim.position.set(-1, 2.5, -3)
 scene.add(rim)
 scene.add(new THREE.AmbientLight(0x606070, 1.1))
 
-// ground disc
+// soft contact shadow under her (radial gradient, works in void and in scenes)
+const shadowCanvas = document.createElement('canvas')
+shadowCanvas.width = shadowCanvas.height = 256
+const sctx = shadowCanvas.getContext('2d')
+const grad = sctx.createRadialGradient(128, 128, 20, 128, 128, 128)
+grad.addColorStop(0, 'rgba(0,0,0,0.45)')
+grad.addColorStop(1, 'rgba(0,0,0,0)')
+sctx.fillStyle = grad
+sctx.fillRect(0, 0, 256, 256)
 const ground = new THREE.Mesh(
   new THREE.CircleGeometry(0.85, 64),
-  new THREE.MeshStandardMaterial({ color: 0x22242c, roughness: 0.9, metalness: 0 }))
+  new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(shadowCanvas),
+                                transparent: true, depthWrite: false }))
 ground.rotation.x = -Math.PI / 2
+ground.position.y = 0.01
 scene.add(ground)
+
+// ---- scene (equirect pano projected onto a grounded skybox) ----
+let sky = null
+async function setScene(url, opts = {}) {
+  if (sky) { scene.remove(sky); sky.geometry.dispose(); sky = null }
+  if (!url) {  // back to the void
+    scene.background = null
+    scene.environment = new THREE.PMREMGenerator(renderer)
+      .fromScene(new RoomEnvironment(), 0.04).texture
+    return
+  }
+  const tex = await new Promise((res, rej) => new THREE.TextureLoader().load(url, res, undefined, rej))
+  tex.mapping = THREE.EquirectangularReflectionMapping
+  tex.colorSpace = THREE.SRGBColorSpace
+  // height = pano capture height, radius = room scale — per-scene tunables
+  sky = new GroundedSkybox(tex, opts.height ?? 1.6, opts.radius ?? 12)
+  sky.position.y = (opts.height ?? 1.6) - 0.01
+  scene.add(sky)
+  scene.environment = tex
+}
 
 let model = null
 let head = null          // skinned mesh with morph targets
@@ -224,7 +256,8 @@ const _pq = new THREE.Quaternion()
 const _target = new THREE.Quaternion()
 const _e = new THREE.Euler()
 
-window.viewer = { camera, controls, scene, renderer, setMorph, playIdle, playGesture,
+window.THREE = THREE  // console/scene experiments
+window.viewer = { camera, controls, scene, renderer, setMorph, playIdle, playGesture, setScene,
   get head() { return head }, get clips() { return clips } }
 
 renderer.setAnimationLoop(() => {
