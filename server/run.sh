@@ -15,7 +15,10 @@ WHISPER_MODEL=~/.local/share/whisper/models/ggml-large-v3-turbo.bin
 "$WHISPER_BIN" -m "$WHISPER_MODEL" --host 127.0.0.1 --port 8124 &
 WHISPER_PID=$!
 
-TTS_REF="$VOICE_REF" ~/Experiments/voice/qwen-tts-env/bin/python3.12 server/tts_server.py &
+# TTS lives in its own project (qwentts.cpp/Vulkan, no torch) — same HTTP
+# contract on :8123. server/tts_server.py is the old torch/ROCm fallback (19x slower).
+TTS_PROJECT=~/Experiments/voice/qwen3-tts-fast
+TTS_REF="$VOICE_REF" "$TTS_PROJECT/runtime/bin/python" "$TTS_PROJECT/server.py" &
 TTS_PID=$!
 
 trap 'kill $WHISPER_PID $TTS_PID 2>/dev/null' EXIT

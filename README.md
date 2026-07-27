@@ -14,7 +14,8 @@ Prerequisites (all machine-local, paths hardcoded in `server/run.sh` /
 - llama-swap already serving on :8082 (systemd) with the `Gemma4-12B` model
   registered — the stack assumes it, run.sh does not start it
 - whisper.cpp Vulkan build + large-v3-turbo model (paths in run.sh)
-- Qwen3-TTS venv at `~/Experiments/voice/qwen-tts-env` (torch ROCm, bf16)
+- Qwen3-TTS engine at `~/Experiments/voice/qwen3-tts-fast` (qwentts.cpp/Vulkan,
+  Q6_K — no torch, no ROCm; `server/tts_server.py` is the old torch fallback)
 
 ```sh
 bun start               # whisper :8124 + TTS :8123 + orchestrator :8471
