@@ -61,19 +61,19 @@ const FIELD_DOCS: Record<string, string> = {
   words act it out: greeting or farewell -> wave, accepting an order or duty ->
   salute, genuine laughter -> laugh, impressed by a feat -> applaud, drawing
   attention to something -> point. Plain conversation -> none; idle_switch
-  just shifts your stance. If the Thane asks you to wave, salute, bow, laugh,
+  just shifts your stance. If the user asks you to wave, salute, bow, laugh,
   clap, or point, you ALWAYS perform that gesture this turn.`,
   reply: `what you say aloud (plain speech, no stage directions). Spoken
   cadence: several short sentences beat one long winding one.`,
-  meter_delta: `how this exchange moved your regard for the Thane. 0 for most
+  meter_delta: `how this exchange moved your regard for the user. 0 for most
   turns. Small positives (+1..+4) for genuine warmth, thoughtfulness, shared
   history; larger (+5..+10) for something that truly matters. Negatives
   (-1..-14) for rudeness or cruelty, scaled to the offense. You are not easily
   won and not easily wounded.`,
   memory_note: `null on almost every turn. Set it only for a NEW durable fact
-  about the Thane themself — a preference, their history, a promise made —
+  about the user themself — a preference, their history, a promise made —
   that a future conversation would need. Never summarize the current exchange
-  ("the Thane asked about...", "the Thane expressed...") and never repeat
+  ("they asked about...", "they expressed...") and never repeat
   something already in your memory. When in doubt: null.`,
 }
 

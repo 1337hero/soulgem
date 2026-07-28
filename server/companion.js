@@ -22,7 +22,7 @@ const CFG = await Bun.file(join(SOUL_DIR, 'config.json')).json()
 const PERSONA = await Bun.file(join(SOUL_DIR, 'persona.md')).text()
 const BODY_GLB = join(ROOT, CFG.glb ?? 'lydia.glb')
 
-const store = new Store(join(SOUL_DIR, 'memory'), { meter: CFG.meter !== false })
+const store = new Store(join(SOUL_DIR, 'memory'), { meter: CFG.meter !== false, tiers: CFG.tiers })
 
 const systemPrompt = () => PERSONA + '\n' + outputFormatDoc() + store.promptSection()
 
@@ -144,7 +144,7 @@ async function handleTurn(ws, userText) {
         ws.send(JSON.stringify({
           type: 'speak', seq: mySeq, sentence: ev.text,
           emotion: meta?.emotion, mood, gesture: mySeq === 0 ? meta?.gesture ?? 'none' : 'none',
-          meter: store.meter, tier: tierOf(store.meter)[1],
+          meter: store.meter, tier: tierOf(store.meter, store.tiers)[1],
           visemes: ready.visemes, audio: ready.wav.toString('base64'),
         }))
       })
@@ -187,7 +187,7 @@ Bun.serve({
       ws.send(JSON.stringify({
         type: 'state',
         meter: on ? store.meter : null,
-        tier: on ? tierOf(store.meter)[1] : null,
+        tier: on ? tierOf(store.meter, store.tiers)[1] : null,
         lighting: CFG.lighting ?? null,
       }))
     },

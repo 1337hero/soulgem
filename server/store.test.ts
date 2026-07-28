@@ -62,3 +62,12 @@ test('loads existing files in the live format', () => {
   expect(s.promptSection()).toContain('- drew a sword (2026-07-27)')
   expect(s.promptSection()).toContain('Relationship: 33/100 (neutral).')
 })
+
+test('per-soul tiers override the default prose', () => {
+  const tiers: [number, string, string][] = [[0, 'cold', 'Ice.'], [50, 'thaw', 'Melting.']]
+  const s = new Store(freshDir(), { tiers })
+  s.applyMeterDelta(60 - s.meter)
+  expect(s.promptSection()).toContain('(thaw). Melting.')
+  expect(tierOf(10, tiers)[1]).toBe('cold')
+  expect(tierOf(10)[1]).toBe('wary')  // default table untouched
+})

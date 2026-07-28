@@ -5,13 +5,15 @@ import { join } from 'path'
 
 export type Note = { t: string; note: string }
 
+// Soul-agnostic defaults; a soul overrides the prose (or names) via config.json
+// "tiers" — e.g. Lydia's housecarl formality lives in HER config, not here.
 export const METER_TIERS: [number, string, string][] = [
-  [0,  'wary',    'You barely trust this Thane yet. Formal, clipped, strictly professional.'],
-  [20, 'neutral', 'Professional respect. Dry, dutiful, keeps a little distance.'],
-  [50, 'warm',    'Years of earned trust. Relaxed, teases freely, quietly fond.'],
-  [75, 'devoted', 'Deep loyalty, chosen not sworn. Openly fond beneath the deadpan; protective.'],
+  [0,  'wary',    'You barely know this person. Guarded, reserved, giving little away.'],
+  [20, 'neutral', 'Civil and comfortable enough, but you keep a little distance.'],
+  [50, 'warm',    'Earned trust. Relaxed around them, openly friendly.'],
+  [75, 'devoted', 'Deep attachment, freely chosen. They matter to you and it shows.'],
 ]
-export const tierOf = (m: number) => METER_TIERS.findLast(([min]) => m >= min)!
+export const tierOf = (m: number, tiers = METER_TIERS) => tiers.findLast(([min]) => m >= min)!
 
 const MEMORY_CAP = 40
 
@@ -21,10 +23,12 @@ export class Store {
   memories: Note[]
   meter: number
   meterOn: boolean
+  tiers: [number, string, string][]
 
   // ponytail: sync fs at boot — single user, two small files, no reason for async plumbing.
-  constructor(dir: string, opts: { meter?: boolean } = {}) {
+  constructor(dir: string, opts: { meter?: boolean; tiers?: [number, string, string][] } = {}) {
     this.meterOn = opts.meter !== false
+    this.tiers = opts.tiers ?? METER_TIERS
     mkdirSync(dir, { recursive: true })
     this.memFile = join(dir, 'user.jsonl')
     this.stateFile = join(dir, 'state.json')
@@ -61,7 +65,7 @@ export class Store {
          + this.memoryLines().join('\n')
     }
     if (this.meterOn) {
-      const [, name, tone] = tierOf(this.meter)
+      const [, name, tone] = tierOf(this.meter, this.tiers)
       s += `\n\n## Current standing\nRelationship: ${this.meter}/100 (${name}). ${tone}`
     }
     return s
