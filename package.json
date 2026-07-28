@@ -3,7 +3,9 @@
   "scripts": {
     "start": "bash server/run.sh",
     "build": "bun build main.js --outfile bundle.js --minify",
-    "test": "bun test server/"
+    "test": "bun test server/",
+    "build:go": "go build ./...",
+    "test:go": "go test ./..."
   },
   "dependencies": {
     "three": "^0.185.1"

@@ -26,6 +26,7 @@ nif.xml
 # --- build artifacts ---
 bundle.js
 node_modules/
+bin/
 __pycache__/
 *.pyc
 

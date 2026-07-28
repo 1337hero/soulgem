@@ -10,6 +10,7 @@ bun start               # whisper :8124 + TTS :8123 + orchestrator :8471
 SOUL=example bun start  # soul select (default lydia)
 bun run build           # REQUIRED after editing main.js — index.html loads bundle.js
 bun test                # server unit tests (reply parser + store)
+go test ./...           # Go parser/pipeline/TTS unit tests
 ```
 
 llama-swap on :8082 is systemd-managed and assumed running. GPU status:
@@ -51,38 +52,38 @@ llama-swap on :8082 is systemd-managed and assumed running. GPU status:
   other than example/ are gitignored (game-derived or personal). Never
   git-add game assets.
 
-## Characters (build_glb.py + characters/)
+## Characters (cmd/build-glb + internal/character/)
 
-One config module per character: `characters/<name>.py` exports `CONFIG`;
-`python3 build_glb.py <name>` builds it, no names = every character.
+One config file per character: `internal/character/<name>.go` returns `Config`;
+`go run ./cmd/build-glb <name>` builds it, no names = every character.
 Characters must not affect each other — every optional capability is OFF
 unless that character's config enables it:
 
 - `skeleton` — vanilla female skeleton by default; set XPMSSE (staging) when
   an outfit is weighted to CBBE 3BA breast/butt bones (else those verts
-  collapse — and see the nif.py rule below before suspecting weights).
+  collapse — and see the NIF parser rule below before suspecting weights).
 - `texture_bsas` — loose files only by default; list the game BSAs to let
   vanilla-only textures (mouth, vanilla outfits) resolve.
-- per-mesh `{'skip': ('ShapeName',)}` — drop one shape from a NIF (e.g. an
+- per-mesh `MeshOptions{Skip: map[string]bool{"ShapeName": true}}` — drop one shape from a NIF (e.g. an
   outfit's cut-down body, or the Gauntlet from gloves).
-- `body_bake` is `('path-match', (r, g, b))` — the match string picks which
+- `BodyMatch` + `BodyFactors` — the match string picks which
   textures get the skin lift, so it never bleeds onto another character.
 
-**Baselines**: `python3 build_glb.py --verify` rebuilds every character to a
+**Baselines**: `go run ./cmd/build-glb --verify` rebuilds every character to a
 scratch file and fails if any hash moved vs `characters/<name>.sha256`;
-`<name> --freeze` blesses a deliberate look change. Run --verify after ANY
-build_glb.py/nif.py edit — it's the proof Lydia didn't move.
+`--freeze <name>` blesses a deliberate look change. Run --verify after ANY
+GLB builder/NIF parser edit — it's the proof Lydia didn't move.
 
 ## Swapping outfits (Skyrim/CBBE track)
 
-Recipe proven with Girl's Travel Outfit (`characters/lydia.py`) and Twilight
-Princess Armor Mashup (`characters/serana.py`):
+Recipe proven with Girl's Travel Outfit (`internal/character/lydia.go`) and
+Twilight Princess Armor Mashup (`internal/character/serana.go`):
 
 1. **Locate the mod** — Vortex staging:
    `~/.config/steamtinkerlaunch/vortex/staging/skyrimse/mods/<Mod Name>/`.
    Mods do NOT need deploying into game Data — `data_roots` in the config
    resolves meshes/textures straight from staging.
-2. **Inspect the NIFs**: `python3 nif.py "<mod>/Meshes/.../torso_1.nif"`
+2. **Inspect the NIFs**: `go run ./cmd/nif "<mod>/Meshes/.../torso_1.nif"`
    prints shapes, vert counts, shader types, texture paths. Use weight `_1`
    variants (matches Lydia's Bijin body weight). Skip `_0`, `1stperson*`,
    and `GND/` (ground/inventory models).
@@ -95,18 +96,19 @@ Princess Armor Mashup (`characters/serana.py`):
    `data_roots`. Skin shapes referencing standard paths
    (`actors\character\female\femalebody_1.dds` etc.) are auto-remapped to
    Bijin skin by the existing `remap` entries — this is what keeps body skin
-   matching her face. The `body_bake` tint applies to any texture whose path
-   matches the config's `body_bake` string.
-5. **Edit the character config** (`characters/<name>.py`): swap mesh entries
+   matching her face. `BodyFactors` apply to any texture whose path matches
+   the config's `BodyMatch` string.
+5. **Edit the character config** (`internal/character/<name>.go`): swap mesh entries
    (absolute paths into staging are fine), add the mod dir to `data_roots`.
-6. **Build + verify**: `python3 build_glb.py <name>` (needs the Skyrim
+6. **Build + verify**: `go run ./cmd/build-glb <name>` (needs the Skyrim
    install), then view — `bun start` and screenshot front/back/face, or
    serve statically. Check: neck/wrist seams, skin tone match, no floating
-   old body parts. Then `python3 build_glb.py --verify` for the others.
+   old body parts. Then `go run ./cmd/build-glb --verify` for the others.
 
-New character entirely: copy `characters/serana.py` — facegen formid + skin
+New character entirely: copy `internal/character/serana.go`, add its loader to
+`internal/character/config.go` — facegen formid + skin
 remaps + meshes + a `souls/<name>/` dir (see Souls). Extract the voice with
-`voice_ref.py <voicetype> souls/<name>/voice_ref.wav` (any voice type in the
+`go run ./cmd/voice-ref <voicetype> souls/<name>/voice_ref.wav` (any voice type in the
 voice BSAs; UHDAP preferred automatically). Non-Skyrim bodies (VRM etc.)
 are a planned separate track (plan §8, SHAPE_VISEME must move to soul
 config first).
@@ -117,9 +119,9 @@ Any Skyrim HKX works (vanilla BSA included — empty track names fall back to
 `anims/skeleton_track_order.json`):
 
 ```sh
-python3 -c "from bsa import BSA; b=BSA('<Data>/Skyrim - Animations.bsa'); \
-  open('/tmp/x.hkx','wb').write(b.read('meshes/actors/character/animations/<name>.hkx'))"
-python3 hkx_anim.py /tmp/x.hkx      # decodes to anims/<name>.json + reindexes
+go run ./cmd/bsa extract "<Data>/Skyrim - Animations.bsa" \
+  "meshes/actors/character/animations/<name>.hkx" /tmp/x.hkx
+go run ./cmd/hkx-anim /tmp/x.hkx # decodes to anims/<name>.json + reindexes
 ```
 
 Naming controls behavior (client-side, by prefix):

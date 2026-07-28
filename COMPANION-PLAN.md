@@ -49,7 +49,7 @@ makes the model emit, alongside the reply text:
 | ASR                 | whisper.cpp (Vulkan, proven) default; evaluate Voxtral-Mini (vLLM) / Qwen3-Omni later — adapter speaks OpenAI `/v1/audio/transcriptions` so swap is config | **have** |
 | LLM                 | llama-swap :8082 — GLM-4.7-Flash (per-soul, any resident model) | **have** |
 | Context manager     | Bun orchestrator (WebSocket server), persona.md + memory store | build |
-| TTS                 | **Qwen3-TTS + cloned Lydia voice**, Vulkan/qwentts.cpp Q6_K — `~/Experiments/voice/qwen3-tts-fast` (RTF 0.233, 4.29x realtime, TTFA 280ms; `server.py` on :8123). Kokoro-82M fallback no longer needed | **DONE** |
+| TTS                 | **Qwen3-TTS + cloned Lydia voice**, Go server binding Vulkan/qwentts.cpp Q6_K directly (RTF 0.24 verified; :8123). No Python/torch runtime | **DONE** |
 | Avatar actions      | three.js: morph targets (TRI phonemes/expressions) + procedural + clips | build |
 | Vision analyzer     | optional later: webcam → Qwen-VL / SmolVLM on llama-swap     | defer |
 | Background gen      | optional later: local SDXL/Flux on a spare R9700             | defer |
@@ -60,7 +60,7 @@ makes the model emit, alongside the reply text:
 ## 3. The asset gap (what Grok can't do and we can)
 
 Current GLB is pre-baked bind-pose soup — fine for a statue, useless for
-animation. But `nif.py` already parses everything needed and we own the
+animation. But `internal/nif` already parses everything needed and we own the
 pipeline:
 
 **3a. Skinned export.** Export real glTF skinning: skeleton hierarchy from
@@ -87,7 +87,7 @@ the same base head).
 2. *Gesture clips*: retarget Mixamo clips to the Skyrim skeleton
    (SkeletonUtils.retarget or a Blender pass) — wave, hair tuck, lean, spin.
    Map to the avatar_actions vocabulary.
-3. ~~(Stretch)~~ ✅ **DONE 2026-07-26** — `hkx_anim.py` decodes SSE
+3. ~~(Stretch)~~ ✅ **DONE 2026-07-26** — `cmd/hkx-anim` decodes SSE
    hkaSplineCompressedAnimation directly (hkxc → XML → spline/40-bit-quat
    decode ported from HavokLib). PrettyFemaleIdles' 5 idle loops decoded to
    `anims/*.json`; viewer plays them with crossfade + random cycling,
@@ -178,23 +178,25 @@ the fast path on AMD. Listening review done (Mike, 10 clips + A/B vs PyTorch —
 "all sound normal"); samples kept at
 `~/Experiments/voice/qwen3-tts-fast/samples/`.
 
-**Wiring: the TTS engine now lives in its own consolidated project**,
-`~/Experiments/voice/qwen3-tts-fast/` (see its README). Its `server.py` is a
-drop-in for `tts_server.py` — same `POST /speak {"text"} -> audio/wav` and
-`GET /health` on the same port 8123, so no client changes. Adds
-`POST /speak_stream` (chunked) for the low-TTFA path. Needs no torch, no ROCm:
+**Wiring:** weights and native libraries live in
+`~/Experiments/voice/qwen3-tts-fast/`; Soulgem's `cmd/tts-server` loads
+`libqwen.so` directly through its C ABI. It provides
+`POST /speak {"text","ref"} -> audio/wav`,
+`POST /speak_stream {"text","ref"} -> chunked audio/wav` (sentinel RIFF sizes,
+read to end of stream; TTFA 304ms measured) and `GET /health` on port 8123.
+Needs no Python, torch, or ROCm:
 
 ```bash
-cd ~/Experiments/voice/qwen3-tts-fast && runtime/bin/python server.py
+go run ./cmd/tts-server
 ```
 
 Loads in **0.8s** on the Q8_0 talker. Env: `TTS_PORT` (8123), `TTS_REF`,
 `TTS_GGUF_DIR`, `TTS_TALKER`, `TTS_CHUNK_SEC` (0.5),
 `GGML_VK_VISIBLE_DEVICES` (1 = PCI 0000:06:00.0 — Vulkan and HIP ordinals
-differ, check `rocm-smi` before changing). Deliberately NOT duplicated into
-this repo: one copy, in the TTS project. **Wired 2026-07-27**: run.sh launches
-it (old torch tts_server.py kept as fallback); Lydia's voice_ref moved to the
-TTS project's `voices/`. Verified in-stack: RTF 0.245–0.26 over HTTP.
+differ, check `rocm-smi` before changing). Models/native libraries remain
+single-copy in the TTS project. **Rewired in Go 2026-07-28**: run.sh builds and
+launches the Go server; Lydia's voice_ref remains in the TTS project's
+`voices/`. Verified over HTTP: PCM16 mono 24 kHz, RTF 0.24.
 
 **Quantisation hits the STRETCH target** (added 2026-07-27). Default is now
 **Q6_K: RTF 0.233 (4.29x realtime), TTFA 280ms**, 0.72GB vs F32's 3.41GB, load
@@ -245,7 +247,7 @@ so any swap is a config line, not a refactor.
 - **P1 — she's alive**: TRI morphs exported; procedural blink/breath/sway/
   look-at. *Done when: idle Lydia tracks the cursor and blinks.*
   ✅ **DONE 2026-07-26** — vanilla femalehead.tri (996v, exact match) pulled
-  via new `bsa.py` (SSE v105 + lz4) and `tri.py` (FRTRI003); 34 morph targets
+  via `internal/bsa` (SSE v105 + lz4) and `internal/tri` (FRTRI003); 34 morph targets
   on LydiaHeadHP (16 visemes, blinks, brows, squints, 7 moods, LookDown),
   deltas transformed by the head-bone bind matrix. Viewer: blink cycle,
   breathing, cursor look-at w/ micro-motion. `window.viewer.setMorph(name, v)`
@@ -458,7 +460,7 @@ boot default; the selector re-points the running stack.
 restart. llama-swap already swaps LLMs per request. The Vulkan TTS re-encodes
 the voice ref on EVERY synthesize call (cached refs need qwentts.cpp ABI v2,
 which our build lacks) — so a per-request ref is zero extra cost; the
-one-voice limit is only "server.py loads one wav at startup". The GLB is a
+  one-voice limit was only loading one wav at startup. The GLB is a
 plain client fetch. The real work is that companion.js holds CFG / Store /
 persona / BODY_GLB as module-level singletons keyed off SOUL at boot.
 
@@ -474,8 +476,8 @@ persona / BODY_GLB as module-level singletons keyed off SOUL at boot.
    - broadcast fresh `state` (meter/tier/lighting now per new soul)
      + new `{type:'soul', name, glb:'/body.glb?v=<name>'}` message
 4. `/body.glb` serves `soul.glbPath` (cache-busted by the `?v=` param).
-5. TTS: stages.js `synthesize(text, refPath)` posts `{text, ref}`; server.py
-   grows a `ref` param + small dict cache of loaded wavs (falls back to its
+5. TTS: stages.js `synthesize(text, refPath)` posts `{text, ref}`; the Go server
+   has a `ref` param + small map cache of loaded wavs (falls back to its
    startup ref when absent — Lydia-only setups unaffected). run.sh keeps
    passing TTS_REF as the default.
 

@@ -15,7 +15,7 @@ Prerequisites (all machine-local, paths hardcoded in `server/run.sh`):
   start it
 - whisper.cpp Vulkan build + large-v3-turbo model (paths in run.sh)
 - Qwen3-TTS engine at `~/Experiments/voice/qwen3-tts-fast` (qwentts.cpp/Vulkan,
-  Q6_K — no torch, no ROCm; `server/tts_server.py` is the old torch fallback)
+  Q6_K — the Go server binds its native C ABI directly; no Python or torch)
 
 ```sh
 bun start               # whisper :8124 + TTS :8123 + orchestrator :8471
@@ -49,7 +49,7 @@ there is no partial restart; killing the orchestrator restarts the stack).
 
 Service URLs are env-overridable: `LYDIA_ASR_URL`, `LYDIA_TTS_URL`,
 `LYDIA_RHUBARB`, `LYDIA_RHUBARB_RECOGNIZER` (see `server/stages.js`),
-`TTS_PORT`/`TTS_REF` (the TTS project's `server.py`).
+`TTS_PORT`/`TTS_REF` (the Go TTS server).
 
 ## Layout
 
@@ -61,7 +61,9 @@ Service URLs are env-overridable: `LYDIA_ASR_URL`, `LYDIA_TTS_URL`,
 | `server/protocol.ts` | single source of truth: WS message types, LLM reply schema (field order is load-bearing), morph vocabulary, generated persona output-format |
 | `server/reply_stream.ts` | pure streaming-JSON reply parser (`bun test server/`) |
 | `server/stages.js` | transcribe / synthesize / lipSync adapters (whisper, Qwen3-TTS, Rhubarb) |
-| `server/tts_server.py` | old torch/ROCm TTS — fallback only; run.sh launches `~/Experiments/voice/qwen3-tts-fast/server.py` (Vulkan, ~19x faster) |
+| `cmd/tts-server` | Go HTTP server over qwentts.cpp/Vulkan (`/health`, `/speak`, per-request voice refs) |
+| `cmd/` | Go CLI entry points for the asset pipeline and TTS |
+| `internal/` | Go parsers, math, character configs, GLB builder, and native TTS binding |
 | `souls/<name>/` | soul pack: persona + config + voice ref + per-soul memory |
 | `AGENTS.md` | how-to: swap outfits/bodies, add animations, souls, scenes |
 | `main.js` | three.js client: viewer, idle anims, viseme lipsync, WS voice loop |
@@ -73,33 +75,34 @@ client code.
 
 ## Asset pipeline (offline, already baked)
 
-1. `nif.py` — minimal Skyrim NIF parser (LE NiTriShape + SSE BSTriShape/
+1. `internal/nif` / `cmd/nif` — minimal Skyrim NIF parser (LE NiTriShape + SSE BSTriShape/
    BSDynamicTriShape). Bind-pose skinning via NiSkinData, bone globals from
    `skeleton_female.nif` by name (facegen NIFs carry identity bone stubs).
-2. `bsa.py` / `tri.py` — BSA v105 extractor (lz4) and FaceGen TRI morph
+2. `internal/bsa`, `internal/tri` / their commands — BSA v105 extractor (lz4) and FaceGen TRI morph
    parser (16 visemes, blinks, brows, 7 moods → glTF morph targets).
-3. `hkx_anim.py` — decodes SSE Havok spline-compressed animations to
-   `anims/*.json` (format documented in its docstring) and regenerates
+3. `cmd/hkx-anim` — decodes SSE Havok spline-compressed animations to
+   `anims/*.json` and regenerates
    `anims/index.json`; `--reindex` rebuilds the index alone. Any Skyrim
    animation is importable.
-4. `build_glb.py` — assembles a character: mod/facegen NIFs + real facegen
+4. `cmd/build-glb` — assembles a character: mod/facegen NIFs + real facegen
    head (resolved by ORIGIN master), face tint baked diffuse×tint×2, DDS→PNG
    via ImageMagick (`texcache/`, keyed by source path + bake so characters
    can't poison each other), smooth normals across seams (hair/eyes keep NIF
-   normals). One config module per character in `characters/<name>.py`.
-   Shared stdlib math in `mathutil.py` (`python3 mathutil.py` self-checks).
-5. `voice_ref.py` — builds a TTS clone reference from any Skyrim voice type
+   normals). One Go config per character in `internal/character/<name>.go`.
+   Load-bearing arithmetic lives in `internal/mathutil`.
+5. `cmd/voice-ref` — builds a TTS clone reference from any Skyrim voice type
    (fuz → xwma → 60s of 24 kHz mono), e.g.
-   `python3 voice_ref.py dlc1seranavoice souls/serana/voice_ref.wav`.
+   `go run ./cmd/voice-ref dlc1seranavoice souls/serana/voice_ref.wav`.
 
 ```sh
-python3 build_glb.py lydia      # rebuild one character (needs the Skyrim install)
-python3 build_glb.py --verify   # rebuild ALL to scratch, fail if any output moved
-python3 build_glb.py <name> --freeze   # bless a new look as the baseline
-bun run build                   # rebuild bundle.js
+go run ./cmd/build-glb lydia           # rebuild one character (needs Skyrim)
+go run ./cmd/build-glb --verify        # rebuild all, fail if any hash moved
+go run ./cmd/build-glb --freeze <name> # bless a deliberate look change
+go test ./...                          # Go unit tests
+bun run build                          # rebuild bundle.js
 ```
 
-`make_standalone.py` emits `lydia.html` (static viewer only, GLB inlined,
+`go run ./cmd/make-standalone` emits `lydia.html` (static viewer only, GLB inlined,
 opens from file://) — predates the voice loop and doesn't include it.
 
 ## While she talks

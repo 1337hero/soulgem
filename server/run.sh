@@ -9,18 +9,27 @@ cd "$(dirname "$0")/.."
 export SOUL="${SOUL:-lydia}"
 VOICE_REF=$(bun -e "console.log(JSON.parse(await Bun.file('souls/$SOUL/config.json').text()).voice_ref ?? '')")
 
-WHISPER_BIN=~/Experiments/voice/whisper.cpp/build-vulkan/bin/whisper-server
-WHISPER_MODEL=~/.local/share/whisper/models/ggml-large-v3-turbo.bin
+# Machine-specific paths, overridable so this runs somewhere other than ArchBox.
+WHISPER_BIN="${WHISPER_BIN:-$HOME/Experiments/voice/whisper.cpp/build-vulkan/bin/whisper-server}"
+WHISPER_MODEL="${WHISPER_MODEL:-$HOME/.local/share/whisper/models/ggml-large-v3-turbo.bin}"
+
+# Build before launching anything: a compile error under `set -e` must not leave
+# a half-started stack behind.
+mkdir -p bin
+go build -o bin/tts-server ./cmd/tts-server
+
+CHILDREN=()
+cleanup() {
+  [[ ${#CHILDREN[@]} -gt 0 ]] && kill "${CHILDREN[@]}" 2>/dev/null
+  return 0
+}
+trap cleanup EXIT
 
 "$WHISPER_BIN" -m "$WHISPER_MODEL" --host 127.0.0.1 --port 8124 &
-WHISPER_PID=$!
+CHILDREN+=($!)
 
-# TTS lives in its own project (qwentts.cpp/Vulkan, no torch) — same HTTP
-# contract on :8123. server/tts_server.py is the old torch/ROCm fallback (19x slower).
-TTS_PROJECT=~/Experiments/voice/qwen3-tts-fast
-TTS_REF="$VOICE_REF" "$TTS_PROJECT/runtime/bin/python" "$TTS_PROJECT/server.py" &
-TTS_PID=$!
-
-trap 'kill $WHISPER_PID $TTS_PID 2>/dev/null' EXIT
+# The Go server binds directly to qwentts.cpp's C ABI; no Python runtime.
+TTS_REF="$VOICE_REF" bin/tts-server &
+CHILDREN+=($!)
 
 bun run server/companion.js
