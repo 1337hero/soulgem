@@ -12,7 +12,9 @@ GTO = os.path.expanduser(
 CONFIG = {
     'name': 'Lydia',
     'data': DATA,
-    'data_roots': [GTO],
+    # bijin-skin symlinks (Bijin Skin CBBE: realistic head, 4K body) shadow the
+    # stock Warmaidens skin in Data — first root wins
+    'data_roots': [os.path.join(ROOT, 'mods/bijin-skin'), GTO],
     'out': os.path.join(ROOT, 'lydia.glb'),
     'meshes': [
         (os.path.join(GTO, "Meshes/Girl's Travel Outfit/torso_1.nif"), {}),
@@ -25,7 +27,7 @@ CONFIG = {
     # measured albedo gap vs composited face (flat-light probe): the game body shader
     # lifts skin via subsurface/spec that flat PBR lacks (includes QNAM .937/.867/.867)
     'body_bake': ('warmaidens 00', (0.9372 * 1.92, 0.8667 * 1.86, 0.8667 * 1.85)),
-    'hair_tint': (0.155, 0.105, 0.072),  # dark brown, multiplied over grayscale hair diffuse
+    'hair_tint': (0.035, 0.025, 0.018),  # near-black brown, multiplied over grayscale hair diffuse
     'facetint': 'actors/character/FaceGenData/FaceTint/Skyrim.esm/000A2C8E.dds',
     # expression/phoneme morphs for the head (P1): vanilla tri from the BSA
     'head_shape': 'LydiaHeadHP',

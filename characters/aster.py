@@ -17,7 +17,9 @@ CBBE = os.path.join(STAGING, "Caliente's Beautiful Bodies Enhancer CBBE - v2.0.2
 CONFIG = {
     'name': 'Aster',
     'data': DATA,
-    'data_roots': [BIJIN, EILHART, CBBE],
+    # bijin-skin (Bijin Skin CBBE): realistic no-moles head with freckles baked
+    # in for jordis/, 4K body — shadows the stock Bijin skin
+    'data_roots': [os.path.join(ROOT, 'mods/bijin-skin'), BIJIN, EILHART, CBBE],
     'texture_bsas': TEXTURE_BSAS,  # mouth interior ships only in the game BSAs
     'out': os.path.join(ROOT, 'aster.glb'),
     'meshes': [

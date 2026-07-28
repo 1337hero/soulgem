@@ -106,10 +106,12 @@ def to_png(cfg, dds_path, max_size=1024):
         return out
     match, factors = cfg['body_bake']
     baked = match in dds_path.lower()  # body/hands skin: match composited face albedo
+    if baked:
+        max_size = 2048  # skin reads smooth at 1024 — keep pore/tone detail
     # cache key must cover source path + bake, NOT just basename — every character
     # has a femalebody_1.dds, and a basename slot lets one poison the others
     stem = os.path.basename(dds_path).rsplit('.', 1)[0]
-    tag = hashlib.md5((dds_path + (repr(factors) if baked else '')).encode()).hexdigest()[:8]
+    tag = hashlib.md5((dds_path + (repr(factors) if baked else '') + str(max_size)).encode()).hexdigest()[:8]
     out = os.path.join(CACHE, f'{stem}.{tag}.png')
     if not os.path.exists(out):
         cmd = ['magick', dds_path, '-resize', f'{max_size}x{max_size}>']

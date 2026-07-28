@@ -25,8 +25,10 @@ XPMSSE = os.path.expanduser(
 CONFIG = {
     'name': 'Serana',
     'data': DATA,
-    # highest priority first: eye choice, then body, then Seranaholic base, then outfit
-    'data_roots': [os.path.join(SERANAHOLIC, d) for d in OPTIONS] + [TPA],
+    # highest priority first: bijin-skin (realistic head + 4K body staged under
+    # serana/), then eye choice, then body, then Seranaholic base, then outfit
+    'data_roots': [os.path.join(ROOT, 'mods/bijin-skin')]
+                  + [os.path.join(SERANAHOLIC, d) for d in OPTIONS] + [TPA],
     # her mouth interior ships only inside the game BSAs
     'texture_bsas': TEXTURE_BSAS,
     'out': os.path.join(ROOT, 'serana.glb'),

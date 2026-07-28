@@ -9,13 +9,13 @@ const canvas = document.getElementById('view')
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true })
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
 renderer.toneMapping = THREE.ACESFilmicToneMapping
-renderer.toneMappingExposure = 1.45
+renderer.toneMappingExposure = 1.25
 renderer.outputColorSpace = THREE.SRGBColorSpace
 
 const scene = new THREE.Scene()
 scene.environment = new THREE.PMREMGenerator(renderer)
   .fromScene(new RoomEnvironment(), 0.04).texture
-scene.environmentIntensity = 1.0
+scene.environmentIntensity = 0.4
 
 const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 50)
 camera.position.set(0.9, 1.55, 2.6)
@@ -28,23 +28,23 @@ controls.maxDistance = 6
 controls.maxPolarAngle = Math.PI / 2 - 0.03  // never below the floor
 
 // lighting: warm key, cool fill, rim
-const key = new THREE.DirectionalLight(0xfff1e0, 2.5)
-key.position.set(0.6, 2.2, 3.8)
+const key = new THREE.DirectionalLight(0xffe8c8, 2.2)
+key.position.set(1.4, 2.0, 3.0)
 scene.add(key)
-const fill = new THREE.DirectionalLight(0xbfd4ff, 1.0)
+const fill = new THREE.DirectionalLight(0xbfd4ff, 0.35)
 fill.position.set(-3, 1.5, 1)
 scene.add(fill)
-const rim = new THREE.DirectionalLight(0xdfe8ff, 1.6)
+const rim = new THREE.DirectionalLight(0xdfe8ff, 1.1)
 rim.position.set(-1, 2.5, -3)
 scene.add(rim)
-const ambient = new THREE.AmbientLight(0x606070, 1.1)
+const ambient = new THREE.AmbientLight(0x606070, 0.35)
 scene.add(ambient)
 
 // per-soul lighting override (config.json `lighting`, sent in the state msg).
 // Always resets to the stock rig first so switching from a custom-lit soul to
 // a stock one doesn't inherit the previous soul's light.
-const STOCK_RIG = { exposure: 1.45, lights: [[ambient, 0x606070, 1.1], [key, 0xfff1e0, 2.5],
-                                             [fill, 0xbfd4ff, 1.0], [rim, 0xdfe8ff, 1.6]] }
+const STOCK_RIG = { exposure: 1.25, lights: [[ambient, 0x606070, 0.35], [key, 0xffe8c8, 2.2],
+                                            [fill, 0xbfd4ff, 0.35], [rim, 0xdfe8ff, 1.1]] }
 function applyLighting(cfg) {
   renderer.toneMappingExposure = STOCK_RIG.exposure
   for (const [light, color, intensity] of STOCK_RIG.lights) {
