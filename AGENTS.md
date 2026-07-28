@@ -28,10 +28,14 @@ llama-swap on :8082 is systemd-managed and assumed running. GPU status:
   repeated text lies ~4x. (Applied to the old torch path; the live Vulkan
   engine has no MIOpen, but the novel-sentence rule still holds.)
 - **Rhubarb is slower than it looks** — pocketSphinx is ~2.3s init + 0.79x
-  audio, single-core, no daemon mode. Don't try to tune one call; it's already
-  pipelined so only the first sentence of a turn is on the critical path.
-  `LYDIA_RHUBARB_RECOGNIZER=phonetic` is ~5x faster but ignores the transcript
-  (Mike judged pocketSphinx's mouth movement better).
+  audio, single-core, no daemon mode; only the first sentence of a turn is on
+  the critical path, but that put first audio at ~6.5s. Default is now
+  `phonetic` (~5x faster, first audio ~2.9s); pocketSphinx mouths slightly
+  better — set LYDIA_RHUBARB_RECOGNIZER=pocketSphinx to trade latency back.
+- **If her lips lead the audio / speech "picks up mid-sentence"**: the audio
+  sink was suspended (PipeWire suspends idle sinks; wake eats ~0.5s). The
+  client holds a silent keepalive stream from the first user gesture — if the
+  symptom returns, check `pactl list sinks | grep State` before digging.
 - **SSE vertex bone indices are global** (into the skin's bone list), NOT
   partition-relative like LE. Remapping through the partition palette tears
   meshes across the body at the wrist (25a8ce0). If a mesh spikes, check

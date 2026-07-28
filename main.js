@@ -351,6 +351,22 @@ let ws = null
 let recorder = null
 let recChunks = []
 let audioCtx = null
+
+// Keep the audio sink awake: PipeWire suspends idle sinks, and a woken sink
+// eats the first ~0.5s of a chunk — lips lead, sound joins mid-sentence. A
+// silent constant source holds the stream open from the first user gesture.
+function ensureAudio() {
+  audioCtx ??= new AudioContext()
+  if (audioCtx.state === 'suspended') audioCtx.resume()
+  if (!ensureAudio.keepalive) {
+    const src = new ConstantSourceNode(audioCtx, { offset: 0 })
+    src.connect(audioCtx.destination)
+    src.start()
+    ensureAudio.keepalive = src
+  }
+}
+window.addEventListener('pointerdown', ensureAudio, { capture: true })
+window.addEventListener('keydown', ensureAudio, { capture: true })
 let analyser = null
 let speaking = false
 
@@ -451,7 +467,7 @@ async function playNext() {
   } else {
     captionEl.innerHTML += ' ' + msg.sentence
   }
-  audioCtx ??= new AudioContext()
+  ensureAudio()
   await audioCtx.resume()
   const buf = await audioCtx.decodeAudioData(b64ToArrayBuffer(msg.audio))
   const src = audioCtx.createBufferSource()

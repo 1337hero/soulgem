@@ -13,7 +13,10 @@ const RHUBARB = Bun.env.LYDIA_RHUBARB ?? join(import.meta.dir, 'rhubarb/rhubarb'
 // barely more than 1, so companion.js pipelines it off the critical path.
 // 'phonetic' is acoustic-only (ignores the transcript) and ~5x faster if the
 // first-sentence latency ever needs it.
-const RECOGNIZER = Bun.env.LYDIA_RHUBARB_RECOGNIZER ?? 'pocketSphinx'
+// phonetic: ~5x faster than pocketSphinx, keeps the first sentence off a
+// multi-second critical path. pocketSphinx mouths slightly better but costs
+// 2.3s init + 0.79x audio on EVERY first chunk (Mike accepted the trade).
+const RECOGNIZER = Bun.env.LYDIA_RHUBARB_RECOGNIZER ?? 'phonetic'
 
 // webm/opus bytes -> text
 export async function transcribe(audioBytes) {
