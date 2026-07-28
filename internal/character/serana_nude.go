@@ -8,7 +8,7 @@ func loadSeranaNude(root, home, staging string) Config {
 		"Seranaholic SSE 1.8-FIXED/Seranaholic 1.8.4")
 	body := filepath.Join(seranaholic, "01 Option/CBBE/meshes/actors/character/Serana")
 	head := cfg.Meshes[len(cfg.Meshes)-1]
-	cfg.Out = filepath.Join(root, "serana_nude.glb")
+	cfg.Out = filepath.Join(root, "characters/serana_nude/serana_nude.glb")
 	cfg.Meshes = []Mesh{
 		{Path: filepath.Join(body, "femalebody_1.nif")},
 		{Path: filepath.Join(body, "femalehands_1.nif")},

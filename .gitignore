@@ -1,11 +1,8 @@
 # --- game-derived assets: extracted/converted Bethesda content, never publish ---
 characters/*/textures/
-lydia.glb
-lydia.html
-serana.glb
-serana_nude.glb
-aster.glb
+characters/*/*.glb
 body.glb
+lydia.html
 texcache/
 anims/*
 !anims/.gitkeep

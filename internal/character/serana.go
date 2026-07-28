@@ -24,7 +24,7 @@ func loadSerana(root, home, staging string) Config {
 	return Config{
 		Name: "Serana", Data: Data, DataRoots: roots,
 		TextureBSAs: append([]string(nil), TextureBSAs...),
-		Out:         filepath.Join(root, "serana.glb"),
+		Out:         filepath.Join(root, "characters/serana/serana.glb"),
 		Skeleton: filepath.Join(xpmsse,
 			"meshes/actors/character/character assets female/skeleton_female.nif"),
 		Meshes: []Mesh{

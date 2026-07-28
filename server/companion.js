@@ -24,7 +24,7 @@ async function loadSoul(name) {
     name,
     cfg,
     persona: await Bun.file(join(dir, 'persona.md')).text(),
-    glbPath: join(ROOT, cfg.glb ?? 'lydia.glb'),
+    glbPath: join(ROOT, cfg.glb ?? 'characters/lydia/lydia.glb'),
     // absolute path for the per-request TTS clone ref; null = server default
     voiceRef: cfg.voice_ref
       ? (cfg.voice_ref.startsWith('~') ? cfg.voice_ref.replace('~', Bun.env.HOME)
@@ -56,7 +56,7 @@ function listSouls() {
       && existsSync(join(ROOT, 'souls', d.name, 'config.json')))
     .map(d => {
       const cfg = JSON.parse(readFileSync(join(ROOT, 'souls', d.name, 'config.json'), 'utf8'))
-      return { name: d.name, model: cfg.model, glb: cfg.glb ?? 'lydia.glb', active: d.name === soul.name }
+      return { name: d.name, model: cfg.model, glb: cfg.glb ?? 'characters/lydia/lydia.glb', active: d.name === soul.name }
     })
 }
 
@@ -83,19 +83,102 @@ async function switchSoul(name) {
     if (token) token.cancelled = true
     c.data.history.length = 0  // new persona = new conversation
   }
+  const prev = soul
   soul = next
+  prev.store.close()
   console.log(`soul -> ${name}`)
   for (const c of conns) {
     sendState(c)
     c.send(JSON.stringify({ type: 'soul', name: soul.name, glb: `/body.glb?v=${soul.name}` }))
   }
+  armIdle()
 }
 
-const systemPrompt = () => soul.persona + '\n' + outputFormatDoc() + soul.store.promptSection()
+// Always-on: persona + schema + bulletin/meter. Per-turn: hybrid FTS+MiniLM recall.
+async function systemPrompt(userText) {
+  const recall = userText ? await soul.store.recallSection(userText) : ''
+  return soul.persona + '\n' + outputFormatDoc() + soul.store.promptSection() + recall
+}
 
-function applyThought(parsed) {
+async function applyThought(parsed) {
   if (typeof parsed.meter_delta === 'number') soul.store.applyMeterDelta(parsed.meter_delta)
-  if (parsed.memory_note) soul.store.addNote(parsed.memory_note)
+  if (parsed.memory_note) {
+    await soul.store.addNote(parsed.memory_note, {
+      emotion: parsed.emotion,
+      meterDelta: parsed.meter_delta,
+    })
+  }
+}
+
+// ---- cortex-lite: decay + bulletin regen after 60s session idle ----
+const IDLE_MS = 60_000
+let idleTimer = null
+let maintaining = false
+
+function armIdle() {
+  clearTimeout(idleTimer)
+  idleTimer = setTimeout(() => {
+    maintainCortex().catch(e => console.error('cortex maintain:', e?.message ?? e))
+  }, IDLE_MS)
+}
+
+// kick the 60s idle clock so a migrated soul gets a bulletin without needing a turn
+armIdle()
+
+async function maintainCortex() {
+  if (maintaining) return
+  maintaining = true
+  try {
+    const faded = soul.store.decay()
+    if (faded) console.log(`cortex decay: ${faded} note(s) faded`)
+    const dupes = soul.store.consolidate()
+    if (dupes) console.log(`cortex consolidate: ${dupes} duplicate(s) suppressed`)
+    const embedded = await soul.store.backfillEmbeddings()
+    if (embedded) console.log(`cortex embed: ${embedded} note(s) vectorized`)
+    if (!soul.store.isDirty() && soul.store.getBulletin()) return
+    const notes = soul.store.notesForBulletin()
+    if (!notes.length) return
+    const text = await synthesizeBulletin(notes)
+    if (text) {
+      soul.store.setBulletin(text)
+      console.log(`cortex bulletin: ${text.split(/\s+/).length} words`)
+    }
+  } finally {
+    maintaining = false
+  }
+}
+
+async function synthesizeBulletin(notes) {
+  const body = notes.map(n =>
+    `- [${n.type}|intensity:${n.intensity}] ${n.note}`).join('\n')
+  const res = await fetch(LLM_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: soul.cfg.model,
+      messages: [
+        {
+          role: 'system',
+          content: `You synthesize working memory for a companion character.
+Write a concise briefing (under 300 words) about the person they talk with.
+Second person where natural ("They…", "You know that…"). Prioritize high-intensity
+and relationship/identity facts. Coherent prose, not a bullet dump. No markdown
+fences, no IDs, no meta commentary — only the briefing.`,
+        },
+        { role: 'user', content: `Notes:\n${body}\n\nWrite the working-memory briefing.` },
+      ],
+      temperature: 0.4,
+      max_tokens: 500,
+      chat_template_kwargs: soul.cfg.chat_template_kwargs ?? {},
+    }),
+  })
+  if (!res.ok) {
+    console.log(`cortex bulletin llm failed: ${res.status}`)
+    return null
+  }
+  const data = await res.json()
+  const text = data.choices?.[0]?.message?.content?.trim()
+  return text || null
 }
 
 // Per-connection conversation history. HISTORY_CAP is what we KEEP;
@@ -121,7 +204,7 @@ async function* thinkStream(userText, token, history) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: soul.cfg.model,
-      messages: [{ role: 'system', content: systemPrompt() }, ...history.slice(-24)],
+      messages: [{ role: 'system', content: await systemPrompt(userText) }, ...history.slice(-24)],
       temperature: 0.8,
       max_tokens: 400,
       stream: true,
@@ -160,7 +243,7 @@ async function* thinkStream(userText, token, history) {
   for (const ev of parser.finish()) {
     if (ev.type === 'done') {
       push(history, { role: 'assistant', content: ev.thought.reply })
-      applyThought(ev.thought)
+      await applyThought(ev.thought)
     }
     yield ev
   }
@@ -172,6 +255,7 @@ async function handleTurn(ws, userText) {
   activeTurn.get(ws) && (activeTurn.get(ws).cancelled = true)  // barge-in via new turn
   const token = { cancelled: false }
   activeTurn.set(ws, token)
+  clearTimeout(idleTimer)  // talking = not idle; re-arm when the turn ends
 
   const t0 = Date.now()
   ws.send(JSON.stringify({ type: 'transcript', text: userText }))
@@ -182,6 +266,7 @@ async function handleTurn(ws, userText) {
   let interrupted = false        // log barge-in once, not per pending chunk
   let sendChain = Promise.resolve()  // serializes speak messages in seq order
 
+  try {
   for await (const ev of thinkStream(userText, token, ws.data.history)) {
     if (ev.type === 'meta') {
       meta = ev.meta
@@ -236,6 +321,9 @@ async function handleTurn(ws, userText) {
   }
   await sendChain  // cancelled mid-stream: let queued (skipping) links settle
   if (stageError) throw stageError
+  } finally {
+    armIdle()
+  }
 }
 
 const MIME = { html: 'text/html', js: 'text/javascript', json: 'application/json',

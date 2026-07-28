@@ -102,8 +102,9 @@ go test ./...                          # Go unit tests
 bun run build                          # rebuild bundle.js
 ```
 
-`go run ./cmd/make-standalone` emits `lydia.html` (static viewer only, GLB inlined,
-opens from file://) — predates the voice loop and doesn't include it.
+`go run ./cmd/make-standalone` emits `lydia.html` from `characters/lydia/lydia.glb`
+(static viewer only, GLB inlined, opens from file://) — predates the voice loop
+and doesn't include it.
 
 ## While she talks
 

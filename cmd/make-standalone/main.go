@@ -34,7 +34,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	glb, err := os.ReadFile(filepath.Join(root, "lydia.glb"))
+	glb, err := os.ReadFile(filepath.Join(root, "characters/lydia/lydia.glb"))
 	if err != nil {
 		return err
 	}

@@ -16,41 +16,6 @@ go test ./...           # Go parser/pipeline/TTS unit tests
 llama-swap on :8082 is systemd-managed and assumed running. GPU status:
 `rocm-smi` (never nvidia-smi). `HIP_VISIBLE_DEVICES`, never CUDA_.
 
-## Hard-won rules
-
-- **Stale bundle.js silently runs old client code.** Any main.js (or imported
-  protocol.ts) change → `bun run build`. When "nothing changed", check this
-  first.
-- **kill and relaunch the stack in SEPARATE tool calls** — pkill/pgrep
-  patterns match your own compound command line (use `run\.[s]h`-style
-  brackets). Killing bun fires run.sh's EXIT trap: whisper + TTS die too;
-  there is no partial restart.
-- **Benchmark TTS only on NOVEL sentences** — MIOpen caches per tensor shape;
-  repeated text lies ~4x. (Applied to the old torch path; the live Vulkan
-  engine has no MIOpen, but the novel-sentence rule still holds.)
-- **Rhubarb is slower than it looks** — pocketSphinx is ~2.3s init + 0.79x
-  audio, single-core, no daemon mode; only the first sentence of a turn is on
-  the critical path, but that put first audio at ~6.5s. Default is now
-  `phonetic` (~5x faster, first audio ~2.9s); pocketSphinx mouths slightly
-  better — set LYDIA_RHUBARB_RECOGNIZER=pocketSphinx to trade latency back.
-- **If her lips lead the audio / speech "picks up mid-sentence"**: the audio
-  sink was suspended (PipeWire suspends idle sinks; wake eats ~0.5s). The
-  client holds a silent keepalive stream from the first user gesture — if the
-  symptom returns, check `pactl list sinks | grep State` before digging.
-- **SSE vertex bone indices are global** (into the skin's bone list), NOT
-  partition-relative like LE. Remapping through the partition palette tears
-  meshes across the body at the wrist (25a8ce0). If a mesh spikes, check
-  weights resolve to the RIGHT side's bones before blaming the mesh.
-- **REPLY_SCHEMA field order is load-bearing** and only REQUIRED fields keep
-  their declared order in llama.cpp's grammar — keep every field required.
-- Reasoning knobs are per-model: `enable_thinking:false` (Gemma/Qwen/GLM
-  family) vs `reasoning_effort:'low'` (gpt-oss — enable_thinking is ignored and
-  reasoning eats max_tokens → empty replies). Set in the soul's config.json.
-  Symptom of the wrong knob is an EMPTY `content` with a full
-  `reasoning_content` — probe a new model before blaming the schema.
-- Not everything is committed: `anims/`, `lydia.glb`, `texcache/`,
-  `characters/*/textures/`, souls other than aster/ are gitignored
-  (game-derived or personal). Never git-add game assets.
 
 ## Characters (cmd/build-glb + internal/character/)
 
@@ -61,6 +26,7 @@ Everything else a character owns lives under `characters/<name>/`:
 
     characters/aster/
       aster.sha256                                  # build baseline (committed)
+      aster.glb                                     # build output (gitignored)
       textures/actors/character/skin/…              # override DDS (gitignored)
       textures/actors/character/head/…
 
@@ -167,6 +133,15 @@ relationship-tier voice; omit for the neutral default), `lighting` (optional per
 + `ambient`/`key`/`fill`/`rim` each `{color, intensity}` — rides the state
 msg, omitted fields keep the stock rig, so Lydia stays stock). Only
 example/ is committed; souls are personal.
+
+**Memory (cortex-lite):** `memory/cortex.db` (SQLite+FTS notes + MiniLM
+vectors + cached bulletin) + `memory/state.json` (meter). Legacy
+`user.jsonl` is migrated once on open then deleted. Per turn: hybrid recall
+(FTS ∪ all-MiniLM-L6-v2 via llama-swap `MiniLM-L6`, RRF fused). After 60s
+session idle: decay + dedupe + embed backfill + bulletin regen. Embed
+endpoint: `LYDIA_EMBED_URL` / `LYDIA_EMBED_MODEL` (defaults
+`http://127.0.0.1:8082/v1/embeddings`, `MiniLM-L6`). See `server/store.ts`,
+`server/embed.ts`.
 
 ## Scenes (render layer done, plumbing pending)
 

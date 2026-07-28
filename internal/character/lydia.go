@@ -12,7 +12,7 @@ func loadLydia(root, _, staging string) Config {
 	return Config{
 		Name: "Lydia", Data: Data,
 		DataRoots: []string{filepath.Join(root, "characters/lydia"), gto},
-		Out:       filepath.Join(root, "lydia.glb"),
+		Out:       filepath.Join(root, "characters/lydia/lydia.glb"),
 		Meshes: []Mesh{
 			{Path: filepath.Join(gto, "Meshes/Girl's Travel Outfit/torso_1.nif")},
 			{Path: filepath.Join(gto, "Meshes/Girl's Travel Outfit/gloves_1.nif")},

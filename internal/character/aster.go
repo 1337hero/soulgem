@@ -14,7 +14,7 @@ func loadAster(root, _, staging string) Config {
 		Name: "Aster", Data: Data,
 		DataRoots:   []string{filepath.Join(root, "characters/aster"), bijin, eilhart, cbbe},
 		TextureBSAs: append([]string(nil), TextureBSAs...),
-		Out:         filepath.Join(root, "aster.glb"),
+		Out:         filepath.Join(root, "characters/aster/aster.glb"),
 		Meshes: []Mesh{
 			{Path: filepath.Join(eilhart, "meshes/NS/Eilhart/PE_1.nif")},
 			{Path: filepath.Join(cbbe, "meshes/actors/character/character assets/femalehands_1.nif")},

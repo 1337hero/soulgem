@@ -3,7 +3,7 @@
   "chat_template_kwargs": {
     "enable_thinking": false
   },
-  "glb": "aster.glb",
+  "glb": "characters/aster/aster.glb",
   "meter": true,
   "voice_ref": "souls/aster/voice_ref.wav",
   "lighting": {
