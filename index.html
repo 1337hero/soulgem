@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lydia — Housecarl of Whiterun</title>
+<title>Soulgem</title>
 <style>
   * { margin: 0; box-sizing: border-box; }
   html, body { height: 100%; }
@@ -82,15 +82,31 @@
     position: absolute; top: 16px; right: 20px; font-size: 11px;
     color: #6b6f80; pointer-events: none; letter-spacing: 0.04em;
   }
+  #souls {
+    position: absolute; top: 12px; left: 16px;
+    display: flex; gap: 6px;
+  }
+  #souls button {
+    background: rgba(255,255,255,0.07); color: #8b8fa0;
+    border: 1px solid #3a3e4d; border-radius: 8px;
+    padding: 5px 12px; font-size: 11px; cursor: pointer;
+    letter-spacing: 0.04em; text-transform: capitalize;
+  }
+  #souls button:hover { background: rgba(255,255,255,0.14); }
+  #souls button.active {
+    background: rgba(120,40,50,0.35); color: #e8e4d8; border-color: #7a4a52;
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
   <div id="frame">
     <canvas id="view"></canvas>
-    <div id="loading">summoning housecarl&hellip;</div>
+    <div id="loading">summoning&hellip;</div>
     <div id="hint">drag to orbit &middot; scroll to zoom &middot; hold <b>T</b> to talk &middot; <b>I</b> to type</div>
     <div id="caption"></div>
     <div id="meter"></div>
+    <div id="souls"></div>
     <button id="spin">rotate</button>
     <div id="composer">
       <button id="modeBtn" title="switch between voice and text (I / Esc)">&#9000;</button>

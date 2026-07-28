@@ -40,9 +40,17 @@ scene.add(rim)
 const ambient = new THREE.AmbientLight(0x606070, 1.1)
 scene.add(ambient)
 
-// per-soul lighting override (config.json `lighting`, sent in the state msg);
-// omitted fields keep the stock rig above
+// per-soul lighting override (config.json `lighting`, sent in the state msg).
+// Always resets to the stock rig first so switching from a custom-lit soul to
+// a stock one doesn't inherit the previous soul's light.
+const STOCK_RIG = { exposure: 1.45, lights: [[ambient, 0x606070, 1.1], [key, 0xfff1e0, 2.5],
+                                             [fill, 0xbfd4ff, 1.0], [rim, 0xdfe8ff, 1.6]] }
 function applyLighting(cfg) {
+  renderer.toneMappingExposure = STOCK_RIG.exposure
+  for (const [light, color, intensity] of STOCK_RIG.lights) {
+    light.color.set(color)
+    light.intensity = intensity
+  }
   if (!cfg) return
   if (cfg.exposure != null) renderer.toneMappingExposure = cfg.exposure
   for (const [name, light] of [['ambient', ambient], ['key', key], ['fill', fill], ['rim', rim]]) {
@@ -97,7 +105,23 @@ let spineBone = null
 const headBindWorldQ = new THREE.Quaternion()
 const spineBindQ = new THREE.Quaternion()
 
-new GLTFLoader().load('body.glb', gltf => {
+function loadBody(url) {
+  document.getElementById('loading').style.display = ''
+  new GLTFLoader().load(url, gltf => {
+  if (model) {
+    // soul switch: drop the old body wholesale (GPU buffers included)
+    scene.remove(model)
+    model.traverse(o => {
+      if (!o.isMesh) return
+      o.geometry.dispose()
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        for (const k in m) if (m[k]?.isTexture) m[k].dispose()
+        m.dispose()
+      }
+    })
+    head = headBone = spineBone = null
+    for (const k in boneByKey) delete boneByKey[k]
+  }
   model = gltf.scene
   model.traverse(o => {
     if (!o.isMesh) return
@@ -133,7 +157,9 @@ new GLTFLoader().load('body.glb', gltf => {
   if (headBone) headBone.getWorldQuaternion(headBindWorldQ)
   if (spineBone) spineBindQ.copy(spineBone.quaternion)
   document.getElementById('loading').style.display = 'none'
-})
+  })
+}
+loadBody('body.glb')
 
 function setMorph(name, v) {
   if (!head) return
@@ -347,6 +373,27 @@ const meterEl = document.getElementById('meter')
 const showMeter = (meter, tier) => {
   meterEl.textContent = meter == null ? '' : `regard ${meter}/100 · ${tier}`
 }
+
+// soul picker: one button per soul from /souls; clicking asks the server to
+// switch (the resulting 'soul' broadcast does the actual reload, all tabs)
+const soulsEl = document.getElementById('souls')
+function markActiveSoul(name) {
+  for (const b of soulsEl?.children ?? []) b.classList.toggle('active', b.dataset.name === name)
+}
+if (soulsEl && location.protocol !== 'file:') {
+  fetch('souls').then(r => r.json()).then(souls => {
+    if (souls.length < 2) return  // nothing to pick
+    for (const s of souls) {
+      const b = document.createElement('button')
+      b.textContent = s.name
+      b.dataset.name = s.name
+      b.classList.toggle('active', s.active)
+      b.onclick = () => ws?.readyState === WebSocket.OPEN
+        && ws.send(JSON.stringify({ type: 'switch_soul', name: s.name }))
+      soulsEl.appendChild(b)
+    }
+  }).catch(() => {})
+}
 let ws = null
 let recorder = null
 let recChunks = []
@@ -383,6 +430,13 @@ function connectWS() {
       captionEl.innerHTML = `<span class="you">"${msg.text}"</span>`
     } else if (msg.type === 'speak') {
       onSpeak(msg)
+    } else if (msg.type === 'soul') {
+      // active soul changed (this tab or another): drop any speech in flight,
+      // reload the body; the preceding state msg already re-applied lighting
+      stopSpeaking()
+      captionEl.textContent = ''
+      loadBody(msg.glb)
+      markActiveSoul(msg.name)
     } else if (msg.type === 'visemes') {
       // late-arriving track for a chunk already sent; cue times are absolute
       // on the chunk clock, so patching mid-playback stays in sync
