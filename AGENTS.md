@@ -32,6 +32,10 @@ llama-swap on :8082 is systemd-managed and assumed running. GPU status:
   pipelined so only the first sentence of a turn is on the critical path.
   `LYDIA_RHUBARB_RECOGNIZER=phonetic` is ~5x faster but ignores the transcript
   (Mike judged pocketSphinx's mouth movement better).
+- **SSE vertex bone indices are global** (into the skin's bone list), NOT
+  partition-relative like LE. Remapping through the partition palette tears
+  meshes across the body at the wrist (25a8ce0). If a mesh spikes, check
+  weights resolve to the RIGHT side's bones before blaming the mesh.
 - **REPLY_SCHEMA field order is load-bearing** and only REQUIRED fields keep
   their declared order in llama.cpp's grammar — keep every field required.
 - Reasoning knobs are per-model: `enable_thinking:false` (Gemma/Qwen/GLM
@@ -43,10 +47,32 @@ llama-swap on :8082 is systemd-managed and assumed running. GPU status:
   other than example/ are gitignored (game-derived or personal). Never
   git-add game assets.
 
+## Characters (build_glb.py + characters/)
+
+One config module per character: `characters/<name>.py` exports `CONFIG`;
+`python3 build_glb.py <name>` builds it, no names = every character.
+Characters must not affect each other — every optional capability is OFF
+unless that character's config enables it:
+
+- `skeleton` — vanilla female skeleton by default; set XPMSSE (staging) when
+  an outfit is weighted to CBBE 3BA breast/butt bones (else those verts
+  collapse — and see the nif.py rule below before suspecting weights).
+- `texture_bsas` — loose files only by default; list the game BSAs to let
+  vanilla-only textures (mouth, vanilla outfits) resolve.
+- per-mesh `{'skip': ('ShapeName',)}` — drop one shape from a NIF (e.g. an
+  outfit's cut-down body, or the Gauntlet from gloves).
+- `body_bake` is `('path-match', (r, g, b))` — the match string picks which
+  textures get the skin lift, so it never bleeds onto another character.
+
+**Baselines**: `python3 build_glb.py --verify` rebuilds every character to a
+scratch file and fails if any hash moved vs `characters/<name>.sha256`;
+`<name> --freeze` blesses a deliberate look change. Run --verify after ANY
+build_glb.py/nif.py edit — it's the proof Lydia didn't move.
+
 ## Swapping outfits (Skyrim/CBBE track)
 
-Recipe proven with Girl's Travel Outfit (see the `LYDIA` dict at the bottom
-of `build_glb.py` for the live example):
+Recipe proven with Girl's Travel Outfit (`characters/lydia.py`) and Twilight
+Princess Armor Mashup (`characters/serana.py`):
 
 1. **Locate the mod** — Vortex staging:
    `~/.config/steamtinkerlaunch/vortex/staging/skyrimse/mods/<Mod Name>/`.
@@ -66,16 +92,18 @@ of `build_glb.py` for the live example):
    (`actors\character\female\femalebody_1.dds` etc.) are auto-remapped to
    Bijin skin by the existing `remap` entries — this is what keeps body skin
    matching her face. The `body_bake` tint applies to any texture whose path
-   contains `warmaidens 00`.
-5. **Edit the character config** (`LYDIA` in build_glb.py): swap mesh entries
+   matches the config's `body_bake` string.
+5. **Edit the character config** (`characters/<name>.py`): swap mesh entries
    (absolute paths into staging are fine), add the mod dir to `data_roots`.
-6. **Build + verify**: `python3 build_glb.py` (needs the Skyrim install),
-   then view — `bun start` and screenshot front/back/face, or serve
-   statically. Check: neck/wrist seams, skin tone match, no floating old
-   body parts. `lydia.glb` output is ~15-20MB with an outfit.
+6. **Build + verify**: `python3 build_glb.py <name>` (needs the Skyrim
+   install), then view — `bun start` and screenshot front/back/face, or
+   serve statically. Check: neck/wrist seams, skin tone match, no floating
+   old body parts. Then `python3 build_glb.py --verify` for the others.
 
-New character/body entirely: `main(cfg)` takes a config dict — copy `LYDIA`,
-change facegen formid + skin remaps + meshes. Non-Skyrim bodies (VRM etc.)
+New character entirely: copy `characters/serana.py` — facegen formid + skin
+remaps + meshes + a `souls/<name>/` dir (see Souls). Extract the voice with
+`voice_ref.py <voicetype> souls/<name>/voice_ref.wav` (any voice type in the
+voice BSAs; UHDAP preferred automatically). Non-Skyrim bodies (VRM etc.)
 are a planned separate track (plan §8, SHAPE_VISEME must move to soul
 config first).
 
@@ -105,7 +133,10 @@ the index alone. Keep clips ≥3s for idles; shorter one-shots are fine.
 `souls/<name>/{persona.md, config.json, memory/}` — copy `souls/example/`.
 config.json: `model` (llama-swap name), `chat_template_kwargs`, `voice_ref`
 (TTS clone wav; omit = server default), `glb` (body, served as /body.glb),
-`meter` (bool). Only example/ is committed; souls are personal.
+`meter` (bool), `lighting` (optional per-soul light rig override: `exposure`
++ `ambient`/`key`/`fill`/`rim` each `{color, intensity}` — rides the state
+msg, omitted fields keep the stock rig, so Lydia stays stock). Only
+example/ is committed; souls are personal.
 
 ## Scenes (render layer done, plumbing pending)
 

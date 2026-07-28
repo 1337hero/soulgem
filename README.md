@@ -26,7 +26,9 @@ SOUL=example bun start  # pick a different soul (default: lydia)
 
 A soul is a directory under `souls/<name>/`: `persona.md` (character sheet),
 `config.json` (LLM model + reasoning kwargs, `voice_ref` wav for the TTS
-clone, `glb` body, `meter` on/off), and `memory/` (that soul's durable
+clone, `glb` body, `meter` on/off, optional `lighting` — per-soul override
+of the viewer's light rig: exposure + ambient/key/fill/rim color/intensity;
+omit it and the stock rig applies), and `memory/` (that soul's durable
 memories + relationship meter). Copy `souls/example/` (Aster, a lighthouse
 librarian) to start your own. Everything under `souls/` except the example is
 gitignored — souls are personal.
@@ -79,16 +81,21 @@ client code.
    `anims/*.json` (format documented in its docstring) and regenerates
    `anims/index.json`; `--reindex` rebuilds the index alone. Any Skyrim
    animation is importable.
-4. `build_glb.py` — `main(cfg)` assembles a character from a config dict
-   (see `LYDIA`): Bijin body + real facegen head (`facegeom/skyrim.esm/
-   000A2C8E.NIF` — facegen resolves by ORIGIN master), face tint baked
-   diffuse×tint×2, DDS→PNG via ImageMagick (`texcache/`), smooth normals
-   across seams (hair/eyes keep NIF normals). Shared stdlib math in
-   `mathutil.py` (`python3 mathutil.py` self-checks).
+4. `build_glb.py` — assembles a character: mod/facegen NIFs + real facegen
+   head (resolved by ORIGIN master), face tint baked diffuse×tint×2, DDS→PNG
+   via ImageMagick (`texcache/`, keyed by source path + bake so characters
+   can't poison each other), smooth normals across seams (hair/eyes keep NIF
+   normals). One config module per character in `characters/<name>.py`.
+   Shared stdlib math in `mathutil.py` (`python3 mathutil.py` self-checks).
+5. `voice_ref.py` — builds a TTS clone reference from any Skyrim voice type
+   (fuz → xwma → 60s of 24 kHz mono), e.g.
+   `python3 voice_ref.py dlc1seranavoice souls/serana/voice_ref.wav`.
 
 ```sh
-python3 build_glb.py   # rebuild lydia.glb (needs the Skyrim install)
-bun run build          # rebuild bundle.js
+python3 build_glb.py lydia      # rebuild one character (needs the Skyrim install)
+python3 build_glb.py --verify   # rebuild ALL to scratch, fail if any output moved
+python3 build_glb.py <name> --freeze   # bless a new look as the baseline
+bun run build                   # rebuild bundle.js
 ```
 
 `make_standalone.py` emits `lydia.html` (static viewer only, GLB inlined,

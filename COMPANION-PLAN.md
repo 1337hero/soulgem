@@ -449,6 +449,60 @@ shapes prompt tone ✅ and is visible in the UI ✅; NOT done: tier/emotion-
 conditioned TTS delivery (waits on emotive TTS) and tier-gated behavior
 unlocks (Ani's mechanic, arguably skip).
 
+## 7d. Character selector — spec (2026-07-27, scoped, not built)
+
+Goal: switch souls from the browser, no stack restart. `SOUL=` stays as the
+boot default; the selector re-points the running stack.
+
+**Feasibility check (done):** nothing in the pipeline actually needs a
+restart. llama-swap already swaps LLMs per request. The Vulkan TTS re-encodes
+the voice ref on EVERY synthesize call (cached refs need qwentts.cpp ABI v2,
+which our build lacks) — so a per-request ref is zero extra cost; the
+one-voice limit is only "server.py loads one wav at startup". The GLB is a
+plain client fetch. The real work is that companion.js holds CFG / Store /
+persona / BODY_GLB as module-level singletons keyed off SOUL at boot.
+
+**Design — server:**
+1. `Soul` object owning {cfg, persona, store, glbPath, voiceRefPath};
+   companion.js keeps `let soul` instead of the singletons. Constructor =
+   exactly today's startup code. LLM warmup moves into it.
+2. `GET /souls` → [{name, model, glb}] by listing `souls/*/config.json`.
+3. WS `{type:'switch_soul', name}` →
+   - reject if a turn is in flight (or barge-in first, same path as voice)
+   - `soul = new Soul(name)`; per-connection history cleared (it is
+     per-soul context, persona prompt changes wholesale)
+   - broadcast fresh `state` (meter/tier/lighting now per new soul)
+     + new `{type:'soul', name, glb:'/body.glb?v=<name>'}` message
+4. `/body.glb` serves `soul.glbPath` (cache-busted by the `?v=` param).
+5. TTS: stages.js `synthesize(text, refPath)` posts `{text, ref}`; server.py
+   grows a `ref` param + small dict cache of loaded wavs (falls back to its
+   startup ref when absent — Lydia-only setups unaffected). run.sh keeps
+   passing TTS_REF as the default.
+
+**Design — client:**
+- Soul picker in the corner (name list from `/souls`), sends `switch_soul`.
+- On `{type:'soul'}`: dispose + reload GLB (loader already runs once at
+  boot; factor `loadBody(url)` out of the startup path), re-apply lighting
+  from the state msg, reset morph targets/idle state.
+- Anims are shared (`anims/` is global) — no per-soul reload.
+
+**Scope cuts (v1):**
+- No per-soul anims, no hot persona editing, no concurrent souls; one
+  active soul per server, switching is global across connections (single
+  user anyway).
+- Whisper untouched (soul-agnostic).
+
+**Order of work:** server Soul refactor (1) is the only risky piece — do it
+first with the existing single-soul flow as the test (SOUL=x bun start must
+behave identically). Then TTS ref param (5, touches the other repo), then
+/souls + WS switch (2-3), then client (UI last).
+
+**Verify:** `bun test` for the Soul refactor (store paths per soul);
+WS probe: connect → switch_soul serana → expect state{lighting} + soul msg,
+then a text turn returns audio in her voice; switch back to lydia and
+confirm meter + voice revert. Client: I-key text turn after switch, plus
+the AGENTS.md typing-must-not-arm-the-mic regression check.
+
 ## 8. Open questions / risks (rewritten 2026-07-27 — original list mostly resolved)
 
 Weightiest first:
