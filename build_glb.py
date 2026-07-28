@@ -1,9 +1,16 @@
 """Assemble a character: parse NIFs -> single GLB with embedded PNG textures.
 
-One character = one config dict (see LYDIA at the bottom); main(cfg) does the rest.
+One character = one module under characters/; main(cfg) does the rest. Characters
+must not be able to affect each other: nothing here reads a global default that a
+new character could change, so every optional capability is off unless that
+character's own config turns it on. `--verify` proves it.
 """
+import argparse
+import hashlib
+import importlib
 import json
 import os
+import re
 import struct
 import subprocess
 
@@ -13,8 +20,28 @@ from nif import NifFile
 from tri import TriFile
 
 DATA = '/home/mikekey/.local/share/Steam/steamapps/common/Skyrim Special Edition/Data'
+ROOT = os.path.dirname(os.path.abspath(__file__))
+CHARACTERS = os.path.join(ROOT, 'characters')
 CACHE = os.path.join(os.path.dirname(__file__), 'texcache')
 os.makedirs(CACHE, exist_ok=True)
+TEXTURE_BSAS = [f'Skyrim - Textures{i}.bsa' for i in range(9)]
+MESH_BSAS = ['Skyrim - Meshes0.bsa', 'Skyrim - Meshes1.bsa']
+
+# vanilla femalehead.tri morphs, in TRI order — same for every human female head
+MORPH_NAMES = [
+    # visemes
+    'Aah', 'BigAah', 'BMP', 'ChJSh', 'DST', 'Eee', 'Eh', 'FV', 'I', 'K', 'N',
+    'Oh', 'OohQ', 'R', 'Th', 'W',
+    # eyes / brows
+    'BlinkLeft', 'BlinkRight', 'SquintLeft', 'SquintRight', 'LookDown',
+    'BrowDownLeft', 'BrowDownRight', 'BrowInLeft', 'BrowInRight',
+    'BrowUpLeft', 'BrowUpRight',
+    # moods
+    'MoodHappy', 'MoodSad', 'MoodAnger', 'MoodFear', 'MoodSurprise',
+    'MoodPuzzled', 'MoodDisgusted',
+]
+HEAD_TRI = ('Skyrim - Meshes0.bsa', 'meshes/actors/character/character assets/femalehead.tri')
+
 
 def _ci_find(root, rel):
     # exact path first, then a case-insensitive walk component by component
@@ -32,6 +59,23 @@ def _ci_find(root, rel):
     return cur if os.path.isfile(cur) else None
 
 
+_BSA_CACHE = {}
+
+
+def from_bsa(data, rel, bsas):
+    """Pull a vanilla asset out of the BSAs into texcache/ (returns None if absent)."""
+    for name in bsas:
+        if name not in _BSA_CACHE:
+            _BSA_CACHE[name] = BSA(os.path.join(data, name))
+        bsa = _BSA_CACHE[name]
+        if rel.lower() in bsa.files:
+            out = os.path.join(CACHE, os.path.basename(rel))
+            if not os.path.exists(out):
+                open(out, 'wb').write(bsa.read(rel))
+            return out
+    return None
+
+
 def find_texture(cfg, game_path):
     key = game_path.lower()
     if key.startswith('data\\'):
@@ -43,29 +87,34 @@ def find_texture(cfg, game_path):
         hit = _ci_find(root, 'textures/' + rel)
         if hit:
             return hit
-    return None
+    # opt-in per character: vanilla assets that ship only inside the game's BSAs
+    return from_bsa(cfg['data'], 'textures/' + rel, cfg.get('texture_bsas', []))
 
 
 def to_png(cfg, dds_path, max_size=1024):
     if 'femalehead' in dds_path.lower():
         # bake the facegen tint (skin tone/makeup) over the base head diffuse
-        # ponytail: one cache slot for all characters — key it by facetint if a
-        # second character ever shares this process/cache dir.
-        out = os.path.join(CACHE, 'facegen_head.png')
+        out = os.path.join(CACHE, cfg['head_shape'] + '.png')
         if not os.path.exists(out):
             # SSE facegen: albedo = diffuse * tint * 2 (tint 0.5 = neutral)
-            facetint = os.path.join(cfg['data'], 'textures', cfg['facetint'])
+            facetint = find_texture(cfg, cfg['facetint'])
             subprocess.run(['magick', dds_path, '-resize', '2048x2048',
                             '(', facetint, '-alpha', 'off', '-resize', '2048x2048', ')',
                             '-compose', 'multiply', '-composite',
                             '-evaluate', 'multiply', '2',
                             '-strip', 'PNG:' + out], check=True)
         return out
-    out = os.path.join(CACHE, os.path.basename(dds_path).rsplit('.', 1)[0] + '.png')
+    match, factors = cfg['body_bake']
+    baked = match in dds_path.lower()  # body/hands skin: match composited face albedo
+    # cache key must cover source path + bake, NOT just basename — every character
+    # has a femalebody_1.dds, and a basename slot lets one poison the others
+    stem = os.path.basename(dds_path).rsplit('.', 1)[0]
+    tag = hashlib.md5((dds_path + (repr(factors) if baked else '')).encode()).hexdigest()[:8]
+    out = os.path.join(CACHE, f'{stem}.{tag}.png')
     if not os.path.exists(out):
         cmd = ['magick', dds_path, '-resize', f'{max_size}x{max_size}>']
-        if 'warmaidens 00' in dds_path.lower():  # body/hands skin: match composited face albedo
-            for ch, f in zip('RGB', cfg['body_bake']):
+        if baked:
+            for ch, f in zip('RGB', factors):
                 cmd += ['-channel', ch, '-evaluate', 'multiply', f'{f:.4f}']
             cmd += ['+channel']
         subprocess.run(cmd + ['-strip', 'PNG:' + out], check=True)
@@ -92,8 +141,9 @@ def main(cfg):
         if png_path in png_index:
             return png_index[png_path]
         data = open(png_path, 'rb').read()
+        # strip the cache-key tag so the embedded name is stable across bake tweaks
         images.append({'bufferView': add_view(data), 'mimeType': 'image/png',
-                       'name': os.path.basename(png_path)})
+                       'name': re.sub(r'\.[0-9a-f]{8}\.png$', '.png', os.path.basename(png_path))})
         textures_out.append({'sampler': 0, 'source': len(images) - 1})
         png_index[png_path] = len(textures_out) - 1
         return png_index[png_path]
@@ -101,8 +151,11 @@ def main(cfg):
     items = []
     mesh_nodes = []
     seen_geo = set()
-    skel = NifFile(os.path.join(
-        cfg['data'], 'meshes/actors/character/character assets female/skeleton_female.nif'))
+    # CBBE 3BA/HDT outfits weight verts to breast/butt bones the vanilla skeleton
+    # lacks; those verts lose every influence and collapse. Such a character sets
+    # 'skeleton' to XPMSSE (a superset) instead.
+    skel = NifFile(os.path.join(cfg['data'], cfg.get(
+        'skeleton', 'meshes/actors/character/character assets female/skeleton_female.nif')))
     skeleton = skel.node_globals
 
     # skeleton -> glTF joint nodes (parents before children)
@@ -126,7 +179,7 @@ def main(cfg):
     for rel, opts in cfg['meshes']:
         nif = NifFile(os.path.join(cfg['data'], rel), skeleton=skeleton)
         for sh in nif.shapes:
-            if not sh.positions or not sh.triangles:
+            if not sh.positions or not sh.triangles or sh.name in opts.get('skip', ()):
                 continue
             geo_key = (len(sh.positions), len(sh.triangles), sh.textures[0] if sh.textures else '')
             if geo_key in seen_geo:  # facegen ships hair twice (opaque+blend pass)
@@ -256,7 +309,7 @@ def main(cfg):
     # Skinned meshes sit at scene level — joints alone place them, so the root
     # transform applies exactly once (via the bones).
     s = 0.01428
-    root = {'name': 'Lydia', 'children': skeleton_roots,
+    root = {'name': cfg['name'], 'children': skeleton_roots,
             'matrix': [-s, 0, 0, 0,  0, 0, s, 0,  0, s, 0, 0,  0, 0, 0, 1]}  # column-major: Z-up -> Y-up, facing +Z
     root_index = len(nodes)
     nodes.append(root)
@@ -298,61 +351,45 @@ def main(cfg):
     print(f'\nwrote {cfg["out"]}: {len(glb)/1e6:.2f} MB, {len(meshes_out)} meshes, {len(images)} textures')
 
 
-# Girl's Travel Outfit (Vortex staging, not deployed into Data) — the outfit
-# carries its own CBBE body + hands, so it REPLACES femalebody/hands/feet.
-GTO = os.path.expanduser(
-    "~/.config/steamtinkerlaunch/vortex/staging/skyrimse/mods/"
-    "Girl's Travel Outfit CBBE-125910-1-1-2-1727489948")
 
-LYDIA = {
-    'data': DATA,
-    'data_roots': [GTO],
-    'out': os.path.join(os.path.dirname(__file__), 'lydia.glb'),
-    'meshes': [
-        (os.path.join(GTO, "Meshes/Girl's Travel Outfit/torso_1.nif"), {}),
-        (os.path.join(GTO, "Meshes/Girl's Travel Outfit/gloves_1.nif"), {}),
-        (os.path.join(GTO, "Meshes/Girl's Travel Outfit/boots_1.nif"), {}),
-        (os.path.join(GTO, "Meshes/Girl's Travel Outfit/choker.nif"), {}),
-        # her real face: facegen keyed to the origin master (skyrim.esm) = Bijin sculpt
-        ('meshes/actors/character/facegendata/facegeom/skyrim.esm/000A2C8E.NIF', {}),
-    ],
-    # measured albedo gap vs composited face (flat-light probe): the game body shader
-    # lifts skin via subsurface/spec that flat PBR lacks (includes QNAM .937/.867/.867)
-    'body_bake': (0.9372 * 1.92, 0.8667 * 1.86, 0.8667 * 1.85),
-    'hair_tint': (0.155, 0.105, 0.072),  # dark brown, multiplied over grayscale hair diffuse
-    'facetint': 'actors/character/FaceGenData/FaceTint/Skyrim.esm/000A2C8E.dds',
-    # expression/phoneme morphs for the head (P1): vanilla tri from the BSA
-    'head_shape': 'LydiaHeadHP',
-    'head_tri_bsa': 'Skyrim - Meshes0.bsa',
-    'head_tri': 'meshes/actors/character/character assets/femalehead.tri',
-    'morph_names': [
-        # visemes
-        'Aah', 'BigAah', 'BMP', 'ChJSh', 'DST', 'Eee', 'Eh', 'FV', 'I', 'K', 'N',
-        'Oh', 'OohQ', 'R', 'Th', 'W',
-        # eyes / brows
-        'BlinkLeft', 'BlinkRight', 'SquintLeft', 'SquintRight', 'LookDown',
-        'BrowDownLeft', 'BrowDownRight', 'BrowInLeft', 'BrowInRight',
-        'BrowUpLeft', 'BrowUpRight',
-        # moods
-        'MoodHappy', 'MoodSad', 'MoodAnger', 'MoodFear', 'MoodSurprise',
-        'MoodPuzzled', 'MoodDisgusted',
-    ],
-    # game texture path (lowercase) -> actual file under Data/textures
-    'remap': {
-        r"ks hairdo's\dawn.dds": 'actors/character/Lydia/hair/Dawn.dds',
-        r"ks hairdo's\dawn_n.dds": 'actors/character/Lydia/hair/Dawn_n.dds',
-        r"ks hairdo's\hairline\long.dds": 'actors/character/Lydia/hair/long.dds',
-        r"ks hairdo's\hairline\long_n.dds": 'actors/character/Lydia/hair/long_n.dds',
-        r'actors\character\eyes\eyebrown.dds': 'actors/character/Lydia/eyes/HumanEyes15.dds',
-        r'actors\character\eyes\eyegreen.dds': 'actors/character/Lydia/eyes/eyegreen.dds',
-        r'actors\character\eyes\eyebrown_n.dds': 'actors/character/Lydia/eyes/eyebrown_n.dds',
+def load(name):
+    """A character's config. One module per character — they share code, never state."""
+    return importlib.import_module(f'characters.{name}').CONFIG
 
-        r'actors\character\female\femalebody_1.dds': 'actors/character/Bijin Warmaidens 00/femalebody_1.dds',
-        r'actors\character\female\femalehands_1.dds': 'actors/character/Bijin Warmaidens 00/femalehands_1.dds',
-        r'actors\character\female\astridbody.dds': 'actors/character/Bijin Warmaidens 00/femalebody_1.dds',
-    },
-}
+
+def sha(path):
+    return hashlib.sha256(open(path, 'rb').read()).hexdigest()
+
+
+def hash_file(name):
+    return os.path.join(CHARACTERS, name + '.sha256')
 
 
 if __name__ == '__main__':
-    main(LYDIA)
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument('names', nargs='*', help='characters to build (default: all)')
+    ap.add_argument('--verify', action='store_true',
+                    help='build to a scratch file and fail if the output moved')
+    ap.add_argument('--freeze', action='store_true',
+                    help='record the current output hashes as the baseline for --verify')
+    a = ap.parse_args()
+    names = a.names or sorted(f[:-3] for f in os.listdir(CHARACTERS) if f.endswith('.py'))
+
+    failed = []
+    for name in names:
+        cfg = dict(load(name))
+        if a.verify:
+            cfg['out'] = os.path.join(CACHE, name + '.verify.glb')
+        main(cfg)
+        if a.freeze:
+            open(hash_file(name), 'w').write(sha(cfg['out']) + '\n')
+            print(f'froze {name}')
+        elif a.verify:
+            want = open(hash_file(name)).read().strip()
+            got = sha(cfg['out'])
+            os.remove(cfg['out'])
+            print(f'{name}: {"ok" if got == want else f"CHANGED\n  was {want}\n  now {got}"}')
+            if got != want:
+                failed.append(name)
+    if failed:
+        raise SystemExit(f'output changed for: {", ".join(failed)}')
