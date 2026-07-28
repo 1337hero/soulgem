@@ -37,7 +37,21 @@ scene.add(fill)
 const rim = new THREE.DirectionalLight(0xdfe8ff, 1.6)
 rim.position.set(-1, 2.5, -3)
 scene.add(rim)
-scene.add(new THREE.AmbientLight(0x606070, 1.1))
+const ambient = new THREE.AmbientLight(0x606070, 1.1)
+scene.add(ambient)
+
+// per-soul lighting override (config.json `lighting`, sent in the state msg);
+// omitted fields keep the stock rig above
+function applyLighting(cfg) {
+  if (!cfg) return
+  if (cfg.exposure != null) renderer.toneMappingExposure = cfg.exposure
+  for (const [name, light] of [['ambient', ambient], ['key', key], ['fill', fill], ['rim', rim]]) {
+    const c = cfg[name]
+    if (!c) continue
+    if (c.color != null) light.color.set(c.color)
+    if (c.intensity != null) light.intensity = c.intensity
+  }
+}
 
 // soft contact shadow under her (radial gradient, works in void and in scenes)
 const shadowCanvas = document.createElement('canvas')
@@ -259,7 +273,7 @@ const _target = new THREE.Quaternion()
 const _e = new THREE.Euler()
 
 window.THREE = THREE  // console/scene experiments
-window.viewer = { camera, controls, scene, renderer, setMorph, playIdle, playGesture, setScene, gaze,
+window.viewer = { camera, controls, scene, renderer, setMorph, playIdle, playGesture, setScene, gaze, applyLighting,
   get head() { return head }, get clips() { return clips } }
 
 renderer.setAnimationLoop(() => {
@@ -347,6 +361,7 @@ function connectWS() {
     const msg = JSON.parse(e.data)
     if (msg.type === 'state') {
       showMeter(msg.meter, msg.tier)
+      applyLighting(msg.lighting)
     } else if (msg.type === 'transcript') {
       if (speaking) { stopSpeaking(); talkBtn.classList.add('busy') }
       captionEl.innerHTML = `<span class="you">"${msg.text}"</span>`

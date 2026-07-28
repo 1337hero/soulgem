@@ -188,6 +188,7 @@ Bun.serve({
         type: 'state',
         meter: on ? store.meter : null,
         tier: on ? tierOf(store.meter)[1] : null,
+        lighting: CFG.lighting ?? null,
       }))
     },
     async message(ws, raw) {
