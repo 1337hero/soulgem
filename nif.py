@@ -415,6 +415,7 @@ class NifFile:
             dr.f32s(4)  # bounding sphere
             g = self._bone_global(bone_refs[b], parent, node_tf)
             bone_mats.append(_mat_mul(g, _tf_mat((trans, rot, scale))))
+            sh.bone_mats[self._node_name.get(bone_refs[b], '')] = bone_mats[-1]
             nv = dr.u16()
             if has_w:
                 dr.o += 6 * nv
@@ -431,7 +432,12 @@ class NifFile:
             for w, bi in zip(weights[vi], bindices[vi]):
                 if w == 0.0:
                     continue
-                gbi = pbones[bi] if bi < len(pbones) else bi
+                # SSE vertex bone indices are global (into bone_refs), NOT relative
+                # to the partition's bone palette the way LE skin partitions are.
+                # Remapping through pbones silently hands a vertex the OTHER arm's
+                # bone whenever its partition guess is wrong, which tears the mesh
+                # across the body at the wrist.
+                gbi = bi
                 sh.skin_weights[vi].append((self._node_name.get(bone_refs[gbi], ''), w))
                 influences[vi].append((bone_mats[gbi], w))
         sh.positions, sh.normals = bake_bind_pose(sh.positions, sh.normals, influences)
