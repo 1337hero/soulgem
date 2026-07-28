@@ -24,6 +24,11 @@ async function loadSoul(name) {
     cfg,
     persona: await Bun.file(join(dir, 'persona.md')).text(),
     glbPath: join(ROOT, cfg.glb ?? 'lydia.glb'),
+    // absolute path for the per-request TTS clone ref; null = server default
+    voiceRef: cfg.voice_ref
+      ? (cfg.voice_ref.startsWith('~') ? cfg.voice_ref.replace('~', Bun.env.HOME)
+                                       : join(ROOT, cfg.voice_ref))
+      : null,
     store: new Store(join(dir, 'memory'), { meter: cfg.meter !== false, tiers: cfg.tiers }),
   }
   // Wake llama-swap now so the soul's model loads up front, not on first chat
@@ -140,7 +145,7 @@ async function handleTurn(ws, userText) {
       // chases it in a follow-up message (client jaw-flaps until it lands)
       const job = (async () => {
         if (token.cancelled) return null
-        const wav = await synthesize(ev.text)
+        const wav = await synthesize(ev.text, soul.voiceRef)
         return token.cancelled ? null : { wav }
       })()
       sendChain = sendChain.then(async () => {

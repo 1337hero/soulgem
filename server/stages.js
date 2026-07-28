@@ -36,11 +36,14 @@ export async function transcribe(audioBytes) {
 }
 
 // text -> wav bytes
-export async function synthesize(text) {
+// ref: absolute path to a 24 kHz mono clone wav; omit for the TTS server's
+// startup default. The engine re-encodes the ref every call, so per-request
+// voices cost nothing extra.
+export async function synthesize(text, ref) {
   const res = await fetch(TTS_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(ref ? { text, ref } : { text }),
   })
   if (!res.ok) throw new Error(`tts ${res.status}`)
   return Buffer.from(await res.arrayBuffer())
