@@ -133,7 +133,8 @@ the index alone. Keep clips ≥3s for idles; shorter one-shots are fine.
 `souls/<name>/{persona.md, config.json, memory/}` — copy `souls/example/`.
 config.json: `model` (llama-swap name), `chat_template_kwargs`, `voice_ref`
 (TTS clone wav; omit = server default), `glb` (body, served as /body.glb),
-`meter` (bool), `lighting` (optional per-soul light rig override: `exposure`
+`meter` (bool), `tiers` (optional [[min, name, prose], ...] — per-soul
+relationship-tier voice; omit for the neutral default), `lighting` (optional per-soul light rig override: `exposure`
 + `ambient`/`key`/`fill`/`rim` each `{color, intensity}` — rides the state
 msg, omitted fields keep the stock rig, so Lydia stays stock). Only
 example/ is committed; souls are personal.

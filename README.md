@@ -26,7 +26,8 @@ SOUL=example bun start  # pick a different soul (default: lydia)
 
 A soul is a directory under `souls/<name>/`: `persona.md` (character sheet),
 `config.json` (LLM model + reasoning kwargs, `voice_ref` wav for the TTS
-clone, `glb` body, `meter` on/off, optional `lighting` — per-soul override
+clone, `glb` body, `meter` on/off, optional `tiers` (per-soul relationship-tier
+prose), optional `lighting` — per-soul override
 of the viewer's light rig: exposure + ambient/key/fill/rim color/intensity;
 omit it and the stock rig applies), and `memory/` (that soul's durable
 memories + relationship meter). Copy `souls/example/` (Aster, a lighthouse
