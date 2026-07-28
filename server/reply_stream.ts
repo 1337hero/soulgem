@@ -14,6 +14,7 @@ export type Event =
 
 const SENTENCE_RE = /[^.!?…]+[.!?…]+["')\]]*|[^.!?…]+$/g
 const MIN_LEN = 12  // fragments shorter than this aren't worth a TTS round-trip
+// reply text is SPOKEN, not code: \t flattens to a space, \r to nothing
 const UNESCAPE: Record<string, string> = { n: '\n', t: ' ', r: '', '"': '"', '\\': '\\', '/': '/' }
 
 /**

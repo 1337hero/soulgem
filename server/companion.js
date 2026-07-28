@@ -98,7 +98,9 @@ function applyThought(parsed) {
   if (parsed.memory_note) soul.store.addNote(parsed.memory_note)
 }
 
-// Per-connection conversation history, trimmed to the last HISTORY_CAP turns.
+// Per-connection conversation history. HISTORY_CAP is what we KEEP;
+// thinkStream sends only the last 24 messages (12 exchanges) to the LLM —
+// the extra retention is slack, not prompt context.
 const HISTORY_CAP = 48  // ponytail: hard cap; nothing to configure yet
 function push(history, msg) {
   history.push(msg)
@@ -110,6 +112,9 @@ function push(history, msg) {
 //   {type:'sentence', text}  — each completed sentence of the reply
 //   {type:'done', thought}   — full parsed object at the end
 async function* thinkStream(userText, token, history) {
+  // pushed before the stream; a barge-in mid-turn leaves this user message
+  // unanswered in history. Intentional — the model tolerates it, and the
+  // interrupted question is real context for the next turn.
   push(history, { role: 'user', content: userText })
   const res = await fetch(LLM_URL, {
     method: 'POST',

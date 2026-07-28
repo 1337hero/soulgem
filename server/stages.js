@@ -20,7 +20,7 @@ const RECOGNIZER = Bun.env.LYDIA_RHUBARB_RECOGNIZER ?? 'phonetic'
 
 // webm/opus bytes -> text
 export async function transcribe(audioBytes) {
-  const tmp = `/tmp/lydia-utt-${Date.now()}`
+  const tmp = `/tmp/lydia-utt-${crypto.randomUUID()}`
   try {
     await Bun.write(tmp + '.webm', audioBytes)
     await $`ffmpeg -y -loglevel error -i ${tmp + '.webm'} -ar 16000 -ac 1 ${tmp + '.wav'}`
@@ -51,7 +51,7 @@ export async function synthesize(text, ref) {
 
 // wav bytes + text -> viseme cues, or null to fall back to jaw-flap
 export async function lipSync(wav, text) {
-  const tmp = `/tmp/lydia-lip-${Date.now()}`
+  const tmp = `/tmp/lydia-lip-${crypto.randomUUID()}`
   try {
     await Bun.write(tmp + '.wav', wav)
     await Bun.write(tmp + '.txt', text)

@@ -157,6 +157,9 @@ function loadBody(url) {
   if (headBone) headBone.getWorldQuaternion(headBindWorldQ)
   if (spineBone) spineBindQ.copy(spineBone.quaternion)
   document.getElementById('loading').style.display = 'none'
+  }, undefined, e => {
+    console.error('body load failed:', e)
+    document.getElementById('loading').textContent = 'body failed to load'
   })
 }
 loadBody('body.glb')
@@ -410,6 +413,11 @@ function ensureAudio() {
     src.connect(audioCtx.destination)
     src.start()
     ensureAudio.keepalive = src
+    // one shared analyser for the jaw-flap loudness fallback — a per-chunk
+    // analyser never gets disconnected and leaks one node per sentence
+    analyser = audioCtx.createAnalyser()
+    analyser.fftSize = 512
+    analyser.connect(audioCtx.destination)
   }
 }
 window.addEventListener('pointerdown', ensureAudio, { capture: true })
@@ -532,10 +540,7 @@ async function playNext() {
   const buf = await audioCtx.decodeAudioData(b64ToArrayBuffer(msg.audio))
   const src = audioCtx.createBufferSource()
   src.buffer = buf
-  analyser = audioCtx.createAnalyser()
-  analyser.fftSize = 512
   src.connect(analyser)
-  analyser.connect(audioCtx.destination)
   src.onended = playNext
   curSrc = src
   speaking = true
