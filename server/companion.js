@@ -1,6 +1,7 @@
 // Lydia companion orchestrator: static viewer + WS voice loop.
 //   bun run server/companion.js
 // Pipeline per turn: audio -> whisper-server -> GLM (persona, JSON) -> TTS -> client.
+import { existsSync, readdirSync, readFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { REPLY_SCHEMA, EMOTION_MOOD, outputFormatDoc } from './protocol.ts'
 import { replyParser } from './reply_stream.ts'
@@ -46,6 +47,49 @@ let soul = await loadSoul(Bun.env.SOUL ?? 'lydia').catch(e => {
   console.error(`${e.message} (try SOUL=example)`)
   process.exit(1)
 })
+
+// every soul with both files is switchable; `active` marks the live one
+function listSouls() {
+  return readdirSync(join(ROOT, 'souls'), { withFileTypes: true })
+    .filter(d => d.isDirectory()
+      && existsSync(join(ROOT, 'souls', d.name, 'persona.md'))
+      && existsSync(join(ROOT, 'souls', d.name, 'config.json')))
+    .map(d => {
+      const cfg = JSON.parse(readFileSync(join(ROOT, 'souls', d.name, 'config.json'), 'utf8'))
+      return { name: d.name, model: cfg.model, glb: cfg.glb ?? 'lydia.glb', active: d.name === soul.name }
+    })
+}
+
+const conns = new Set()  // live WS connections, for switch broadcasts
+
+function sendState(ws) {
+  // meter otherwise only rides the seq-0 speak chunk, so a fresh page shows
+  // nothing until she talks. Null when the soul runs meterless.
+  const on = soul.cfg.meter !== false
+  ws.send(JSON.stringify({
+    type: 'state',
+    meter: on ? soul.store.meter : null,
+    tier: on ? tierOf(soul.store.meter, soul.store.tiers)[1] : null,
+    lighting: soul.cfg.lighting ?? null,
+  }))
+}
+
+// Load first so a bad name changes nothing; then cancel in-flight turns
+// (same path as barge-in), reset every connection's context, swap, announce.
+async function switchSoul(name) {
+  const next = await loadSoul(name)
+  for (const c of conns) {
+    const token = activeTurn.get(c)
+    if (token) token.cancelled = true
+    c.data.history.length = 0  // new persona = new conversation
+  }
+  soul = next
+  console.log(`soul -> ${name}`)
+  for (const c of conns) {
+    sendState(c)
+    c.send(JSON.stringify({ type: 'soul', name: soul.name, glb: `/body.glb?v=${soul.name}` }))
+  }
+}
 
 const systemPrompt = () => soul.persona + '\n' + outputFormatDoc() + soul.store.promptSection()
 
@@ -201,6 +245,7 @@ Bun.serve({
       return server.upgrade(req, { data: { history: [] } })
         ? undefined : new Response('upgrade failed', { status: 400 })
     }
+    if (url.pathname === '/souls') return Response.json(listSouls())
     let path = url.pathname === '/' ? '/index.html' : url.pathname
     const file = path === '/body.glb' ? Bun.file(soul.glbPath) : Bun.file(join(ROOT, path.slice(1)))
     if (!(await file.exists())) return new Response('not found', { status: 404 })
@@ -210,15 +255,11 @@ Bun.serve({
   websocket: {
     maxPayloadLength: 32 * 1024 * 1024,
     open(ws) {
-      // meter otherwise only rides the seq-0 speak chunk, so a fresh page shows
-      // nothing until she talks. Null when the soul runs meterless.
-      const on = soul.cfg.meter !== false
-      ws.send(JSON.stringify({
-        type: 'state',
-        meter: on ? soul.store.meter : null,
-        tier: on ? tierOf(soul.store.meter, soul.store.tiers)[1] : null,
-        lighting: soul.cfg.lighting ?? null,
-      }))
+      conns.add(ws)
+      sendState(ws)
+    },
+    close(ws) {
+      conns.delete(ws)
     },
     async message(ws, raw) {
       try {
@@ -236,6 +277,8 @@ Bun.serve({
         } else if (msg.type === 'interrupt') {
           const token = activeTurn.get(ws)
           if (token) token.cancelled = true
+        } else if (msg.type === 'switch_soul') {
+          await switchSoul(msg.name)
         }
       } catch (e) {
         console.error(e)

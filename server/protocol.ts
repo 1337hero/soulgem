@@ -111,6 +111,9 @@ export type ServerMsg =
   // TTS finishes; lips jaw-flap until this lands (cue times are absolute, so
   // late arrival still aligns)
   | { type: 'visemes'; seq: number; visemes: Viseme[] }
+  // the active soul changed (broadcast to every connection): reload the body
+  // from `glb` (cache-busted per soul) — a fresh `state` precedes this message
+  | { type: 'soul'; name: string; glb: string }
   | { type: 'speak_end' }
   | { type: 'error'; error: string }
 
@@ -118,3 +121,4 @@ export type ClientMsg =
   | { type: 'text'; text: string }
   | { type: 'audio'; data: string /* base64 webm/opus */ }
   | { type: 'interrupt' }
+  | { type: 'switch_soul'; name: string }
