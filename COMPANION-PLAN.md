@@ -449,7 +449,7 @@ shapes prompt tone ✅ and is visible in the UI ✅; NOT done: tier/emotion-
 conditioned TTS delivery (waits on emotive TTS) and tier-gated behavior
 unlocks (Ani's mechanic, arguably skip).
 
-## 7d. Character selector — spec (2026-07-27, scoped, not built)
+## 7d. Character selector — spec (2026-07-27; BUILT same day, steps 1-4: e7ec607, 95c9091, 3476e66, 5bce5f3)
 
 Goal: switch souls from the browser, no stack restart. `SOUL=` stays as the
 boot default; the selector re-points the running stack.
