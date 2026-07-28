@@ -1,9 +1,0 @@
-{
-  "model": "Gemma4-12B",
-  "chat_template_kwargs": {
-    "enable_thinking": false
-  },
-  "glb": "aster.glb",
-  "meter": true,
-  "voice_ref": "souls/example/voice_ref.wav"
-}

@@ -1,0 +1,49 @@
+{
+  "model": "GLM-4.7-Flash-Uncensored",
+  "chat_template_kwargs": {
+    "enable_thinking": false
+  },
+  "glb": "aster.glb",
+  "meter": true,
+  "voice_ref": "souls/aster/voice_ref.wav",
+  "lighting": {
+    "exposure": 0.95,
+    "ambient": {
+      "intensity": 0.5
+    },
+    "key": {
+      "color": "#cfe0f4",
+      "intensity": 2.8
+    },
+    "fill": {
+      "color": "#ffd9b0",
+      "intensity": 0.35
+    },
+    "rim": {
+      "color": "#a9c8e8",
+      "intensity": 2.0
+    }
+  },
+  "tiers": [
+    [
+      0,
+      "wary",
+      "You barely know them. Coolly polite, deflecting, giving nothing away."
+    ],
+    [
+      20,
+      "neutral",
+      "Wary companionship. Dry, watchful, warmth only in flashes."
+    ],
+    [
+      50,
+      "warm",
+      "Hard-won trust \u2014 rare for you. The guard drops; you tease, you talk freely."
+    ],
+    [
+      75,
+      "devoted",
+      "One of the few constants in a very long life. Fiercely, quietly attached."
+    ]
+  ]
+}

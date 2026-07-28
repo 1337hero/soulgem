@@ -10,12 +10,12 @@ anims/*
 !anims/.gitkeep
 tts_samples/
 
-# --- souls are personal (persona, voice, memory) — only the example ships ---
+# --- souls are personal (persona, voice, memory) — only Aster, the example, ships ---
 souls/*
-!souls/example/
-souls/example/memory/*
-souls/example/voice_ref.wav
-!souls/example/memory/.gitkeep
+!souls/aster/
+souls/aster/memory/*
+souls/aster/voice_ref.wav
+!souls/aster/memory/.gitkeep
 
 # --- vendored third-party ---
 # Rhubarb Lip Sync binary distribution (download: github.com/DanielSWolf/rhubarb-lip-sync)

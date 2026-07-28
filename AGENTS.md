@@ -134,7 +134,7 @@ the index alone. Keep clips ≥3s for idles; shorter one-shots are fine.
 
 ## Souls
 
-`souls/<name>/{persona.md, config.json, memory/}` — copy `souls/example/`.
+`souls/<name>/{persona.md, config.json, memory/}` — copy `souls/aster/`.
 config.json: `model` (llama-swap name), `chat_template_kwargs`, `voice_ref`
 (TTS clone wav; omit = server default), `glb` (body, served as /body.glb),
 `meter` (bool), `tiers` (optional [[min, name, prose], ...] — per-soul

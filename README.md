@@ -30,8 +30,8 @@ clone, `glb` body, `meter` on/off, optional `tiers` (per-soul relationship-tier
 prose), optional `lighting` — per-soul override
 of the viewer's light rig: exposure + ambient/key/fill/rim color/intensity;
 omit it and the stock rig applies), and `memory/` (that soul's durable
-memories + relationship meter). Copy `souls/example/` (Aster, a lighthouse
-librarian) to start your own. Everything under `souls/` except the example is
+memories + relationship meter). Copy `souls/aster/` (Aster, a lighthouse
+librarian) to start your own. Everything under `souls/` except Aster is
 gitignored — souls are personal.
 
 Wait for `warmed up` in the output (TTS loads in ~1s; the stack also warms the
