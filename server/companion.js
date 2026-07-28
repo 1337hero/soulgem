@@ -11,24 +11,42 @@ const ROOT = dirname(import.meta.dir)  // project root
 const PORT = 8471
 const LLM_URL = 'http://127.0.0.1:8082/v1/chat/completions'
 
-// ---- soul pack: persona + config + memory namespace (SOUL env selects) ----
-const SOUL = Bun.env.SOUL ?? 'lydia'
-const SOUL_DIR = join(ROOT, 'souls', SOUL)
-if (!(await Bun.file(join(SOUL_DIR, 'persona.md')).exists())) {
-  console.error(`no such soul: souls/${SOUL}/ (try SOUL=example)`)
-  process.exit(1)
+// ---- soul pack: persona + config + memory namespace (SOUL env selects the
+// boot soul; everything soul-scoped hangs off `soul` so a switch is one swap) ----
+async function loadSoul(name) {
+  const dir = join(ROOT, 'souls', name)
+  if (!(await Bun.file(join(dir, 'persona.md')).exists())) {
+    throw new Error(`no such soul: souls/${name}/`)
+  }
+  const cfg = await Bun.file(join(dir, 'config.json')).json()
+  const s = {
+    name,
+    cfg,
+    persona: await Bun.file(join(dir, 'persona.md')).text(),
+    glbPath: join(ROOT, cfg.glb ?? 'lydia.glb'),
+    store: new Store(join(dir, 'memory'), { meter: cfg.meter !== false, tiers: cfg.tiers }),
+  }
+  // Wake llama-swap now so the soul's model loads up front, not on first chat
+  // (~10s Gemma, ~70s big models). Fire-and-forget; first turn just gets faster.
+  fetch(LLM_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: cfg.model, messages: [{ role: 'user', content: 'wake' }], max_tokens: 1 }),
+  }).then(r => console.log(`llm ${cfg.model} ${r.ok ? 'warm' : `warmup failed: ${r.status}`}`),
+          e => console.log(`llm warmup failed: ${e.message ?? e}`))
+  return s
 }
-const CFG = await Bun.file(join(SOUL_DIR, 'config.json')).json()
-const PERSONA = await Bun.file(join(SOUL_DIR, 'persona.md')).text()
-const BODY_GLB = join(ROOT, CFG.glb ?? 'lydia.glb')
 
-const store = new Store(join(SOUL_DIR, 'memory'), { meter: CFG.meter !== false, tiers: CFG.tiers })
+let soul = await loadSoul(Bun.env.SOUL ?? 'lydia').catch(e => {
+  console.error(`${e.message} (try SOUL=example)`)
+  process.exit(1)
+})
 
-const systemPrompt = () => PERSONA + '\n' + outputFormatDoc() + store.promptSection()
+const systemPrompt = () => soul.persona + '\n' + outputFormatDoc() + soul.store.promptSection()
 
 function applyThought(parsed) {
-  if (typeof parsed.meter_delta === 'number') store.applyMeterDelta(parsed.meter_delta)
-  if (parsed.memory_note) store.addNote(parsed.memory_note)
+  if (typeof parsed.meter_delta === 'number') soul.store.applyMeterDelta(parsed.meter_delta)
+  if (parsed.memory_note) soul.store.addNote(parsed.memory_note)
 }
 
 // Per-connection conversation history, trimmed to the last HISTORY_CAP turns.
@@ -48,12 +66,12 @@ async function* thinkStream(userText, token, history) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: CFG.model,
+      model: soul.cfg.model,
       messages: [{ role: 'system', content: systemPrompt() }, ...history.slice(-24)],
       temperature: 0.8,
       max_tokens: 400,
       stream: true,
-      chat_template_kwargs: CFG.chat_template_kwargs ?? {},
+      chat_template_kwargs: soul.cfg.chat_template_kwargs ?? {},
       response_format: {
         type: 'json_schema',
         json_schema: { name: 'lydia_reply', schema: REPLY_SCHEMA },
@@ -145,7 +163,7 @@ async function handleTurn(ws, userText) {
         ws.send(JSON.stringify({
           type: 'speak', seq: mySeq, sentence: ev.text,
           emotion: meta?.emotion, mood, gesture: mySeq === 0 ? meta?.gesture ?? 'none' : 'none',
-          meter: store.meter, tier: tierOf(store.meter, store.tiers)[1],
+          meter: soul.store.meter, tier: tierOf(soul.store.meter, soul.store.tiers)[1],
           visemes: null, audio: ready.wav.toString('base64'),
         }))
         lipSync(ready.wav, ev.text).then(visemes => {
@@ -179,7 +197,7 @@ Bun.serve({
         ? undefined : new Response('upgrade failed', { status: 400 })
     }
     let path = url.pathname === '/' ? '/index.html' : url.pathname
-    const file = path === '/body.glb' ? Bun.file(BODY_GLB) : Bun.file(join(ROOT, path.slice(1)))
+    const file = path === '/body.glb' ? Bun.file(soul.glbPath) : Bun.file(join(ROOT, path.slice(1)))
     if (!(await file.exists())) return new Response('not found', { status: 404 })
     const ext = path.split('.').pop()
     return new Response(file, { headers: { 'Content-Type': MIME[ext] ?? 'application/octet-stream' } })
@@ -189,12 +207,12 @@ Bun.serve({
     open(ws) {
       // meter otherwise only rides the seq-0 speak chunk, so a fresh page shows
       // nothing until she talks. Null when the soul runs meterless.
-      const on = CFG.meter !== false
+      const on = soul.cfg.meter !== false
       ws.send(JSON.stringify({
         type: 'state',
-        meter: on ? store.meter : null,
-        tier: on ? tierOf(store.meter, store.tiers)[1] : null,
-        lighting: CFG.lighting ?? null,
+        meter: on ? soul.store.meter : null,
+        tier: on ? tierOf(soul.store.meter, soul.store.tiers)[1] : null,
+        lighting: soul.cfg.lighting ?? null,
       }))
     },
     async message(ws, raw) {
@@ -223,12 +241,3 @@ Bun.serve({
 })
 
 console.log(`lydia companion on http://localhost:${PORT}`)
-
-// Wake llama-swap now so the soul's model loads at launch, not on first chat
-// (~10s Gemma, ~70s big models). Fire-and-forget; first turn just gets faster.
-fetch(LLM_URL, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ model: CFG.model, messages: [{ role: 'user', content: 'wake' }], max_tokens: 1 }),
-}).then(r => console.log(`llm ${CFG.model} ${r.ok ? 'warm' : `warmup failed: ${r.status}`}`),
-        e => console.log(`llm warmup failed: ${e.message ?? e}`))
