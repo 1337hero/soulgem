@@ -4,5 +4,6 @@
     "enable_thinking": false
   },
   "glb": "aster.glb",
-  "meter": true
+  "meter": true,
+  "voice_ref": "souls/example/voice_ref.wav"
 }
