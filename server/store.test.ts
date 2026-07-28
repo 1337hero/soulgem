@@ -1,10 +1,10 @@
 import { test, expect } from 'bun:test'
 import { mkdtempSync, readFileSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
 import { Store, tierOf } from './store.ts'
 
-const SCRATCH = '/tmp/claude-1000/-home-mikekey-Experiments-lydia-viewer/435a9d0b-3d6f-40bb-a8bb-cd9335ffac52/scratchpad'
-const freshDir = () => mkdtempSync(join(SCRATCH, 'store-'))
+const freshDir = () => mkdtempSync(join(tmpdir(), 'store-'))
 
 test('meter clamps at 0 and 100', () => {
   const s = new Store(freshDir())
