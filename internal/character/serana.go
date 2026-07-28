@@ -13,7 +13,7 @@ func loadSerana(root, home, staging string) Config {
 	tpa := filepath.Join(staging, "Twilight Princess Armor Mashup-71182-5-2-1719932881")
 	armor := filepath.Join(tpa, "meshes/Twilight Princess Armor/F")
 	xpmsse := filepath.Join(staging, "XP32 Maximum Skeleton Special Extended-1988-5-06-1707663131")
-	roots := []string{filepath.Join(root, "mods/bijin-skin")}
+	roots := []string{filepath.Join(root, "characters/serana")}
 	for _, option := range options {
 		roots = append(roots, filepath.Join(seranaholic, option))
 	}
@@ -33,13 +33,14 @@ func loadSerana(root, home, staging string) Config {
 			{Path: filepath.Join(armor, "TwilightPrincess_Boots_1.nif")},
 			{Path: head},
 		},
-		BodyMatch: "character/serana/female", BodyFactors: mathutil.Vec3{1.42, 1.42, 1.50},
+		BodyMatch: "character/skin/female", BodyFactors: mathutil.Vec3{1.42, 1.42, 1.50},
 		HairTint: &hair, FaceTint: "actors/character/FaceGenData/FaceTint/Dawnguard.esm/00002B6C.dds",
 		HeadShape: "SeranaHeadHP", HeadTriBSA: HeadTriBSA, HeadTri: HeadTri,
 		MorphNames: append([]string(nil), MorphNames...),
 		Remap: map[string]string{
-			`actors\character\female\femalebody_1.dds`:  "actors/character/Serana/femalebody_1.dds",
-			`actors\character\female\femalehands_1.dds`: "actors/character/Serana/femalehands_1.dds",
+			`actors\character\female\femalebody_1.dds`:  "actors/character/skin/femalebody_1.dds",
+			`actors\character\female\femalehands_1.dds`: "actors/character/skin/femalehands_1.dds",
+			`actors\character\serana\femalehead.dds`:    "actors/character/head/femalehead.dds",
 		},
 	}
 }

@@ -1,4 +1,5 @@
 # --- game-derived assets: extracted/converted Bethesda content, never publish ---
+characters/*/textures/
 lydia.glb
 lydia.html
 serana.glb

@@ -48,14 +48,32 @@ llama-swap on :8082 is systemd-managed and assumed running. GPU status:
   reasoning eats max_tokens → empty replies). Set in the soul's config.json.
   Symptom of the wrong knob is an EMPTY `content` with a full
   `reasoning_content` — probe a new model before blaming the schema.
-- Not everything is committed: `anims/`, `lydia.glb`, `texcache/`, souls
-  other than example/ are gitignored (game-derived or personal). Never
-  git-add game assets.
+- Not everything is committed: `anims/`, `lydia.glb`, `texcache/`,
+  `characters/*/textures/`, souls other than aster/ are gitignored
+  (game-derived or personal). Never git-add game assets.
 
 ## Characters (cmd/build-glb + internal/character/)
 
 One config file per character: `internal/character/<name>.go` returns `Config`;
 `go run ./cmd/build-glb <name>` builds it, no names = every character.
+
+Everything else a character owns lives under `characters/<name>/`:
+
+    characters/aster/
+      aster.sha256                                  # build baseline (committed)
+      textures/actors/character/skin/…              # override DDS (gitignored)
+      textures/actors/character/head/…
+
+`characters/<name>` is the first entry in that character's `DataRoots`, so it
+shadows every staging mod and the game Data dir. Because we own these paths,
+every override is reached through an explicit `Remap` entry rather than by
+happening to sit where a third-party mod put it. The DDS themselves are
+game-derived and untracked — repopulate them by copying out of Vortex staging
+(see "Swapping outfits") and confirm with `--verify`.
+
+Note `characters/lydia/textures/…/skin/` is a byte-identical copy of Aster's:
+they wear the same Bijin skin. That is deliberate duplication — it keeps the
+characters independent, and git stores the identical blobs once anyway.
 Characters must not affect each other — every optional capability is OFF
 unless that character's config enables it:
 
@@ -67,10 +85,14 @@ unless that character's config enables it:
 - per-mesh `MeshOptions{Skip: map[string]bool{"ShapeName": true}}` — drop one shape from a NIF (e.g. an
   outfit's cut-down body, or the Gauntlet from gloves).
 - `BodyMatch` + `BodyFactors` — the match string picks which
-  textures get the skin lift, so it never bleeds onto another character.
+  textures get the skin lift, so it never bleeds onto another character. It
+  is a substring test against the *resolved* texture path, so keep it aimed
+  at `characters/<name>/textures/` (which we own) and never at a third-party
+  mod's folder name — matching on the latter both breaks when the mod moves
+  and silently catches unrelated files that happen to sit in that folder.
 
 **Baselines**: `go run ./cmd/build-glb --verify` rebuilds every character to a
-scratch file and fails if any hash moved vs `characters/<name>.sha256`;
+scratch file and fails if any hash moved vs `characters/<name>/<name>.sha256`;
 `--freeze <name>` blesses a deliberate look change. Run --verify after ANY
 GLB builder/NIF parser edit — it's the proof Lydia didn't move.
 
@@ -94,10 +116,11 @@ Twilight Princess Armor Mashup (`internal/character/serana.go`):
    boots cover feet).
 4. **Textures**: outfit-local paths (`textures\<mod>\...`) resolve via
    `data_roots`. Skin shapes referencing standard paths
-   (`actors\character\female\femalebody_1.dds` etc.) are auto-remapped to
-   Bijin skin by the existing `remap` entries — this is what keeps body skin
-   matching her face. `BodyFactors` apply to any texture whose path matches
-   the config's `BodyMatch` string.
+   (`actors\character\female\femalebody_1.dds` etc.) are remapped to the
+   character's own `characters/<name>/textures/` copy of the Bijin skin by the
+   existing `remap` entries — this is what keeps body skin matching her face.
+   `BodyFactors` apply to any texture whose path matches the config's
+   `BodyMatch` string.
 5. **Edit the character config** (`internal/character/<name>.go`): swap mesh entries
    (absolute paths into staging are fine), add the mod dir to `data_roots`.
 6. **Build + verify**: `go run ./cmd/build-glb <name>` (needs the Skyrim

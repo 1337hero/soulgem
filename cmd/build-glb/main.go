@@ -58,7 +58,7 @@ func run(names []string, verify, freeze bool) error {
 		if err != nil {
 			return err
 		}
-		hashFile := filepath.Join(root, "characters", name+".sha256")
+		hashFile := filepath.Join(root, "characters", name, name+".sha256")
 		switch {
 		case freeze:
 			if err := os.WriteFile(hashFile, []byte(hash+"\n"), 0o644); err != nil {
