@@ -383,6 +383,12 @@ function connectWS() {
       captionEl.innerHTML = `<span class="you">"${msg.text}"</span>`
     } else if (msg.type === 'speak') {
       onSpeak(msg)
+    } else if (msg.type === 'visemes') {
+      // late-arriving track for a chunk already sent; cue times are absolute
+      // on the chunk clock, so patching mid-playback stays in sync
+      const hit = playingMsg?.seq === msg.seq ? playingMsg
+                : speakQueue.find(m => m.seq === msg.seq)
+      if (hit) hit.visemes = msg.visemes
     } else if (msg.type === 'speak_end') {
       endReceived = true
       if (!playingMsg && !speakQueue.length) finishSpeaking()

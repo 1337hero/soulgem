@@ -61,20 +61,20 @@ const FIELD_DOCS: Record<string, string> = {
   words act it out: greeting or farewell -> wave, accepting an order or duty ->
   salute, genuine laughter -> laugh, impressed by a feat -> applaud, drawing
   attention to something -> point. Plain conversation -> none; idle_switch
-  just shifts your stance. If the user asks you to wave, salute, bow, laugh,
-  clap, or point, you ALWAYS perform that gesture this turn.`,
+  just shifts your stance. If the person you're speaking with asks you to wave,
+  salute, bow, laugh, clap, or point, you ALWAYS perform that gesture this turn.`,
   reply: `what you say aloud (plain speech, no stage directions). Spoken
   cadence: several short sentences beat one long winding one.`,
-  meter_delta: `how this exchange moved your regard for the user. 0 for most
-  turns. Small positives (+1..+4) for genuine warmth, thoughtfulness, shared
-  history; larger (+5..+10) for something that truly matters. Negatives
-  (-1..-14) for rudeness or cruelty, scaled to the offense. You are not easily
-  won and not easily wounded.`,
+  meter_delta: `how this exchange moved your regard for the person you're
+  speaking with. 0 for most turns. Small positives (+1..+4) for genuine warmth,
+  thoughtfulness, shared history; larger (+5..+10) for something that truly
+  matters. Negatives (-1..-14) for rudeness or cruelty, scaled to the offense.
+  You are not easily won and not easily wounded.`,
   memory_note: `null on almost every turn. Set it only for a NEW durable fact
-  about the user themself — a preference, their history, a promise made —
-  that a future conversation would need. Never summarize the current exchange
-  ("they asked about...", "they expressed...") and never repeat
-  something already in your memory. When in doubt: null.`,
+  about the person you're speaking with — a preference, their history, a
+  promise made — that a future conversation would need. Never summarize the
+  current exchange ("they asked about...", "they expressed...") and never
+  repeat something already in your memory. When in doubt: null.`,
 }
 
 /** The "## Output format" section of the system prompt, rendered from REPLY_SCHEMA. */
@@ -107,6 +107,10 @@ export type ServerMsg =
   | { type: 'speak'; seq: number; sentence: string; emotion?: string
       mood: Record<string, number>; gesture: string; meter: number
       visemes: Viseme[] | null; audio: string /* base64 wav */ }
+  // viseme track chasing an already-sent speak chunk: audio ships as soon as
+  // TTS finishes; lips jaw-flap until this lands (cue times are absolute, so
+  // late arrival still aligns)
+  | { type: 'visemes'; seq: number; visemes: Viseme[] }
   | { type: 'speak_end' }
   | { type: 'error'; error: string }
 

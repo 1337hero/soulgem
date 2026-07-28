@@ -118,11 +118,12 @@ async function handleTurn(ws, userText) {
       // Start synth+lipsync NOW — sentence N+1 must not wait for sentence N's
       // rhubarb (pocketSphinx is ~RTF 0.9 on one core, but 8 concurrent cost
       // barely more than 1). Only the send order is serialized, via sendChain.
+      // decoupled: audio ships the moment TTS finishes; the viseme track
+      // chases it in a follow-up message (client jaw-flaps until it lands)
       const job = (async () => {
         if (token.cancelled) return null
         const wav = await synthesize(ev.text)
-        if (token.cancelled) return null
-        return { wav, visemes: await lipSync(wav, ev.text) }
+        return token.cancelled ? null : { wav }
       })()
       sendChain = sendChain.then(async () => {
         let ready
@@ -145,8 +146,13 @@ async function handleTurn(ws, userText) {
           type: 'speak', seq: mySeq, sentence: ev.text,
           emotion: meta?.emotion, mood, gesture: mySeq === 0 ? meta?.gesture ?? 'none' : 'none',
           meter: store.meter, tier: tierOf(store.meter, store.tiers)[1],
-          visemes: ready.visemes, audio: ready.wav.toString('base64'),
+          visemes: null, audio: ready.wav.toString('base64'),
         }))
+        lipSync(ready.wav, ev.text).then(visemes => {
+          if (visemes && !token.cancelled) {
+            ws.send(JSON.stringify({ type: 'visemes', seq: mySeq, visemes }))
+          }
+        }).catch(() => {})  // no track = the chunk stays jaw-flapped
       })
     } else if (ev.type === 'done') {
       await sendChain
