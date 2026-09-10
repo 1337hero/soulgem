@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"soulgem/internal/tts"
 )
@@ -247,6 +248,17 @@ func TestReferencesAreLoadedAndCached(t *testing.T) {
 	}
 	if len(first) != 2 {
 		t.Fatalf("loaded %d samples", len(first))
+	}
+	// Overwriting the file must be picked up on the next load.
+	if err := os.WriteFile(path, tts.EncodeWAV([]float32{0.5, -0.5, 0.5}, 24000), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	newMtime := time.Now().Add(time.Second) // survive same-nanosecond writes
+	if err := os.Chtimes(path, newMtime, newMtime); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := references.load("~/voice.wav"); err != nil || len(again) != 3 {
+		t.Errorf("load after overwrite = %d samples, %v; want 3, nil", len(again), err)
 	}
 	// Removing the file must not break the second load: it is cached.
 	if err := os.Remove(path); err != nil {

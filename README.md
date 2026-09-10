@@ -57,7 +57,9 @@ Service URLs are env-overridable: `LYDIA_ASR_URL`, `LYDIA_TTS_URL`,
 |---|---|
 | `server/run.sh` | starts the stack (`bun start`) |
 | `server/companion.js` | orchestrator: WS plumbing, per-connection history, turn loop, LLM call |
-| `server/store.ts` | durable state: memories (append-only user.jsonl) + relationship meter/tiers |
+| `server/store.ts` | durable state: SQLite memories, hybrid recall, relationship meter/tiers |
+| `server/soul.ts` | cancels soul-owned jobs and drains them before closing memory |
+| `client/playback.ts` | speech queue, interruption, audio preparation and playback lifetime |
 | `server/protocol.ts` | single source of truth: WS message types, LLM reply schema (field order is load-bearing), morph vocabulary, generated persona output-format |
 | `server/reply_stream.ts` | pure streaming-JSON reply parser (`bun test server/`) |
 | `server/stages.js` | transcribe / synthesize / lipSync adapters (whisper, Qwen3-TTS, Rhubarb) |
@@ -72,6 +74,25 @@ Service URLs are env-overridable: `LYDIA_ASR_URL`, `LYDIA_TTS_URL`,
 **After editing `main.js` (or anything it imports): `bun run build`** —
 index.html loads `bundle.js`, not `main.js`; a stale bundle silently runs old
 client code.
+
+## Development checks
+
+```sh
+bun install
+bun run check          # strict types, complexity lint, Bun/Go tests, client build
+bun run typecheck      # includes main.js and server JavaScript via checkJs
+bun run lint           # ESLint + pinned gocyclo; max complexity 20, including tests
+bun test server/ client/
+go test ./...
+```
+
+Companion integration tests use temporary soul directories, SQLite databases,
+and localhost servers. They do not use personal souls or the live model/TTS
+services. Launcher tests also run in a temporary project with stub executables.
+
+After changing a NIF parser or GLB builder, also run
+`go run ./cmd/build-glb --verify`. This requires the original game/mod assets
+at the paths in each character config; missing assets prevent verification.
 
 ## Asset pipeline (offline, already baked)
 
@@ -110,8 +131,9 @@ and doesn't include it.
 
 Rhubarb visemes drive the mouth per sentence; vanilla dialogue animations
 (`talk_*` clips) give her body language while speaking; one-shot gestures
-(wave/salute/laugh/applaud/point) fire when the model picks them; 10 idle
-stances rotate between turns; she keeps eye contact with the camera
+(wave/salute/laugh/applaud/point) fire when the model picks them; the **dance
+for me** button (or just asking her) sets her dancing to a Skyrim track,
+ducked under her voice; 10 idle stances rotate between turns; she keeps eye contact with the camera
 (`viewer.gaze` tunables). Scenes: `viewer.setScene('/pano.jpg', {height,
 radius})` places her in an equirect panorama with a real floor (CC0 panos
 from Poly Haven work great at 4K). See AGENTS.md for adding any of these.

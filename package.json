@@ -3,11 +3,23 @@
   "scripts": {
     "start": "bash server/run.sh",
     "build": "bun build main.js --outfile bundle.js --minify",
-    "test": "bun test server/",
+    "test": "bun test server/ client/",
     "build:go": "go build ./...",
-    "test:go": "go test ./..."
+    "test:go": "go test ./...",
+    "typecheck": "tsc --noEmit",
+    "lint:js": "eslint main.js client/ server/",
+    "lint:go": "go tool gocyclo -over 20 cmd internal server",
+    "lint": "bun run lint:js && bun run lint:go",
+    "check": "bun run typecheck && bun run lint && bun test server/ client/ && go test ./... && bun run build"
   },
   "dependencies": {
     "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "@types/three": "^0.185.4",
+    "@typescript-eslint/parser": "8.61.1",
+    "eslint": "9.39.4",
+    "typescript": "5.9.3"
   }
 }

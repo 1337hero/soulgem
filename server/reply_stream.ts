@@ -7,10 +7,12 @@
 // Relies on llama.cpp's json_schema grammar emitting fields in declaration
 // order, so everything before `reply` is complete metadata.
 
+import { parseReplyMeta, parseReply, type Reply, type ReplyMeta } from './protocol.ts'
+
 export type Event =
-  | { type: 'meta'; meta: any }
+  | { type: 'meta'; meta: ReplyMeta }
   | { type: 'sentence'; text: string }
-  | { type: 'done'; thought: any }
+  | { type: 'done'; thought: Reply }
 
 const SENTENCE_RE = /[^.!?…]+[.!?…]+["')\]]*|[^.!?…]+$/g
 const MIN_LEN = 12  // fragments shorter than this aren't worth a TTS round-trip
@@ -45,7 +47,7 @@ export function replyParser() {
   let replyDone = false
   let buf = ''          // unescaped reply text not yet emitted
   const spoken: string[] = []  // every sentence emitted, for truncation salvage
-  let meta: any = null
+  let meta: ReplyMeta = {}
 
   return {
     push(delta: string): Event[] {
@@ -57,7 +59,7 @@ export function replyParser() {
         if (!m) return events
         metaSent = true
         scanned = m.index! + m[0].length
-        meta = JSON.parse(content.slice(0, m.index).replace(/,\s*$/, '') + '}')
+        meta = parseReplyMeta(JSON.parse(content.slice(0, m.index).replace(/,\s*$/, '') + '}'))
         events.push({ type: 'meta', meta })
       }
 
@@ -84,15 +86,15 @@ export function replyParser() {
       buf = ''
       spoken.push(...sentences)
       const events: Event[] = sentences.map(text => ({ type: 'sentence', text }))
-      let thought: any
+      let raw: unknown
       try {
-        thought = JSON.parse(content)
+        raw = JSON.parse(content)
       } catch {
         // max_tokens truncation leaves unterminated JSON; salvage what streamed
         // rather than erroring a turn the user already partly heard.
-        thought = { emotion: 'neutral', ...meta, reply: spoken.join(' ') }
+        raw = { emotion: 'neutral', ...meta, reply: spoken.join(' ') }
       }
-      events.push({ type: 'done', thought })
+      events.push({ type: 'done', thought: parseReply(raw) })
       return events
     },
   }

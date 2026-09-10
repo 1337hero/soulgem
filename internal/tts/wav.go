@@ -13,8 +13,26 @@ func ReadReference(path string) ([]float32, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
+	wav, err := parseReference(data, path)
+	if err != nil {
+		return nil, 0, err
+	}
+	if wav.rate != 24000 {
+		return nil, int(wav.rate), fmt.Errorf("%s: need 24 kHz PCM, got %d Hz", path, wav.rate)
+	}
+	samples, err := wav.mono(path)
+	return samples, int(wav.rate), err
+}
+
+type wavReference struct {
+	format, channels, bits uint16
+	rate                   uint32
+	pcm                    []byte
+}
+
+func parseReference(data []byte, path string) (wavReference, error) {
 	if len(data) < 12 || string(data[:4]) != "RIFF" || string(data[8:12]) != "WAVE" {
-		return nil, 0, fmt.Errorf("%s: not a RIFF/WAVE file", path)
+		return wavReference{}, fmt.Errorf("%s: not a RIFF/WAVE file", path)
 	}
 	var format, channels, bits uint16
 	var rate uint32
@@ -24,12 +42,12 @@ func ReadReference(path string) ([]float32, int, error) {
 		size := int(binary.LittleEndian.Uint32(data[off+4:]))
 		off += 8
 		if size < 0 || off+size > len(data) {
-			return nil, 0, fmt.Errorf("%s: truncated %s chunk", path, name)
+			return wavReference{}, fmt.Errorf("%s: truncated %s chunk", path, name)
 		}
 		switch name {
 		case "fmt ":
 			if size < 16 {
-				return nil, 0, fmt.Errorf("%s: short fmt chunk", path)
+				return wavReference{}, fmt.Errorf("%s: short fmt chunk", path)
 			}
 			format = binary.LittleEndian.Uint16(data[off:])
 			channels = binary.LittleEndian.Uint16(data[off+2:])
@@ -44,33 +62,36 @@ func ReadReference(path string) ([]float32, int, error) {
 		}
 	}
 	if channels == 0 || len(pcm) == 0 {
-		return nil, 0, fmt.Errorf("%s: missing WAV format or audio data", path)
+		return wavReference{}, fmt.Errorf("%s: missing WAV format or audio data", path)
 	}
-	if rate != 24000 {
-		return nil, int(rate), fmt.Errorf("%s: need 24 kHz PCM, got %d Hz", path, rate)
+	return wavReference{format, channels, bits, rate, pcm}, nil
+}
+
+func (w wavReference) mono(path string) ([]float32, error) {
+	bytesPerSample := int(w.bits / 8)
+	if bytesPerSample == 0 || len(w.pcm)%(bytesPerSample*int(w.channels)) != 0 {
+		return nil, fmt.Errorf("%s: invalid WAV sample layout", path)
 	}
-	bytesPerSample := int(bits / 8)
-	if bytesPerSample == 0 || len(pcm)%(bytesPerSample*int(channels)) != 0 {
-		return nil, int(rate), fmt.Errorf("%s: invalid WAV sample layout", path)
+	var sample func([]byte) float32
+	switch {
+	case w.format == 1 && w.bits == 16:
+		sample = func(b []byte) float32 { return float32(int16(binary.LittleEndian.Uint16(b))) / 32768 }
+	case w.format == 3 && w.bits == 32:
+		sample = func(b []byte) float32 { return math.Float32frombits(binary.LittleEndian.Uint32(b)) }
+	default:
+		return nil, fmt.Errorf("%s: unsupported WAV format=%d bits=%d", path, w.format, w.bits)
 	}
-	frames := len(pcm) / bytesPerSample / int(channels)
+	frames := len(w.pcm) / bytesPerSample / int(w.channels)
 	out := make([]float32, frames)
 	for frame := range frames {
 		var sum float32
-		for channel := range int(channels) {
-			off := (frame*int(channels) + channel) * bytesPerSample
-			switch {
-			case format == 1 && bits == 16:
-				sum += float32(int16(binary.LittleEndian.Uint16(pcm[off:]))) / 32768
-			case format == 3 && bits == 32:
-				sum += math.Float32frombits(binary.LittleEndian.Uint32(pcm[off:]))
-			default:
-				return nil, int(rate), fmt.Errorf("%s: unsupported WAV format=%d bits=%d", path, format, bits)
-			}
+		for channel := range int(w.channels) {
+			off := (frame*int(w.channels) + channel) * bytesPerSample
+			sum += sample(w.pcm[off:])
 		}
-		out[frame] = sum / float32(channels)
+		out[frame] = sum / float32(w.channels)
 	}
-	return out, int(rate), nil
+	return out, nil
 }
 
 // streamingSize marks a RIFF whose total length is not yet known. Clients read

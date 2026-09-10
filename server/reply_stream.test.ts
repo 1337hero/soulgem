@@ -9,7 +9,7 @@ function run(json: string, chunk = json.length): [Event[], Event[]] {
   return [streamed, p.finish()]
 }
 
-const sentences = (evs: Event[]) => evs.filter(e => e.type === 'sentence').map(e => (e as any).text)
+const sentences = (evs: Event[]) => evs.filter(e => e.type === 'sentence').map(e => e.text)
 
 test('full JSON in one delta', () => {
   const json = '{"emotion":"warm","reply":"The horses are ready, my Thane. We should ride."}'
@@ -26,7 +26,7 @@ test('delta split mid-escape-sequence', () => {
   const p = replyParser()
   p.push(json.slice(0, cut))
   p.push(json.slice(cut))
-  expect((p.finish()[0] as any).text).toBe('She said "go" and left the hall.')
+  expect(sentences(p.finish())[0]).toBe('She said "go" and left the hall.')
 })
 
 test('escaped quotes and newlines unescape', () => {
@@ -92,7 +92,12 @@ test('truncated JSON (max_tokens cut) salvages spoken sentences in done', () => 
   const p = replyParser()
   const events = p.push('{"emotion": "warm", "mood": {}, "gesture": "none", "reply": "First sentence here. Second sentence arrives now. And then it just cu')
   const done = p.finish().find(e => e.type === 'done')
-  expect(done.thought.reply).toContain('First sentence here.')
-  expect(done.thought.reply).toContain('Second sentence arrives now.')
-  expect(done.thought.emotion).toBe('warm')
+  expect(done!.thought.reply).toContain('First sentence here.')
+  expect(done!.thought.reply).toContain('Second sentence arrives now.')
+  expect(done!.thought.emotion).toBe('warm')
+})
+
+test('valid JSON with invalid reply fields is rejected, not treated as truncation', () => {
+  const parser = replyParser()
+  expect(() => parser.push('{"emotion":42,"reply":"Hello there."}')).toThrow()
 })

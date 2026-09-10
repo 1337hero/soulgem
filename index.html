@@ -29,6 +29,15 @@
     padding: 6px 14px; font-size: 12px; cursor: pointer;
   }
   #spin:hover { background: rgba(255,255,255,0.14); }
+  /* dance: an action, so it borrows the talk button's rosy fill; sits left of rotate */
+  #dance {
+    position: absolute; bottom: 14px; right: 84px;
+    background: rgba(120,40,50,0.35); color: #e8e4d8;
+    border: 1px solid #7a4a52; border-radius: 8px;
+    padding: 6px 14px; font-size: 12px; cursor: pointer; user-select: none;
+  }
+  #dance:hover { background: rgba(120,40,50,0.55); }
+  #dance.busy { opacity: 0.55; pointer-events: none; }
   /* talk button and text input share the same slot — they swap, so the bottom
      row never shifts. #modeBtn toggles between them. */
   #composer {
@@ -104,6 +113,7 @@
     <div id="caption"></div>
     <div id="meter"></div>
     <div id="souls"></div>
+    <button id="dance">dance for me</button>
     <button id="spin">rotate</button>
     <div id="composer">
       <button id="modeBtn" title="switch between voice and text (I / Esc)">&#9000;</button>

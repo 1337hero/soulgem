@@ -9,7 +9,8 @@ Operational guide for agents (and future Mike). The architecture/state doc is
 bun start               # whisper :8124 + TTS :8123 + orchestrator :8471
 SOUL=example bun start  # soul select (default lydia)
 bun run build           # REQUIRED after editing main.js — index.html loads bundle.js
-bun test                # server unit tests (reply parser + store)
+bun test                # server + client tests (temporary stores/services)
+bun run check           # strict types + max-20 complexity + tests + client build
 go test ./...           # Go parser/pipeline/TTS unit tests
 ```
 
@@ -117,11 +118,40 @@ Naming controls behavior (client-side, by prefix):
 - `gesture_*` — one-shot emotes, played on the model's `gesture` field
 - `talk_*` — talking body language, random one per speech chunk
   (`talk_angry*` pool used on annoyed emotion)
+- `dance_*` — a looping dance + its music track, played on `gesture: 'dance'`
+  (see "Dance for me" below); never joins the idle rotation
 - anything else — joins the random idle rotation (loopable clips only;
   female variants live under `animations/female/` in the BSA)
 
 Rename by naming the extracted .hkx before decoding. `--reindex` rebuilds
 the index alone. Keep clips ≥3s for idles; shorter one-shots are fine.
+`--loop` trims each clip to one seamless loop (best pose match to frame 0
+within 6–20s) — use it for full-length routines that would otherwise bake
+tens of MB of JSON the browser loads up front (the Dance For Me dances run
+the length of their song). hkxc renders blank track names as U+2400; the
+parser strips it so those clips take the vanilla positional track-order
+fallback (a regression there collapses every track into one bone).
+
+## Dance for me
+
+The "dance for me" button sends a hidden `Dance for me!` turn; she agrees in
+her own words and the reply's `gesture: 'dance'` starts a looping `dance_*`
+clip plus its music track (`music/dance_N.ogg`, ducked under her voice, capped
+at `DANCE_MS`). Barge-in or the cap ends it. Baked offline from the Dance For
+Me mod (`Dance for me - Dance for you SE(ESPfe)` in Vortex staging + the
+`Dance4Me` music in game Data):
+
+```sh
+# animations: 4 spline HKX -> anims/dance_1..4.json (looped, ~1-2MB each)
+for n in 1 2 3 4; do cp "<staging>/.../animations/Dance19100$n/Dance19100${n}_S1.hkx" /tmp/dance_$n.hkx; done
+go run ./cmd/hkx-anim --loop /tmp/dance_{1,2,3,4}.hkx
+# music: xwm -> ogg (ffmpeg's wmapro, same path voice-ref uses)
+mkdir -p music
+for n in 1 2 3 4; do ffmpeg -v error -y -i "<Data>/music/Dance4Me/dance$n.xwm" -c:a libvorbis -q:a 5 music/dance_$n.ogg; done
+```
+
+Both `anims/*` and `music/` are gitignored (game-derived). `dance_N` clip
+pairs with `dance_N.ogg` by index.
 
 ## Souls
 

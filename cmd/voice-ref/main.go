@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -43,7 +42,7 @@ func main() {
 	}
 }
 
-func build(voice, out string, seconds, minimum, maximum float64) error {
+func voiceLines(voice string) ([]line, error) {
 	var lines []line
 	for _, name := range archives {
 		path := filepath.Join(gameData, name)
@@ -51,11 +50,11 @@ func build(voice, out string, seconds, minimum, maximum float64) error {
 			if os.IsNotExist(err) {
 				continue
 			}
-			return err
+			return nil, err
 		}
 		archive, err := bsa.Open(path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		var hits []string
 		for _, path := range archive.Order {
@@ -70,14 +69,22 @@ func build(voice, out string, seconds, minimum, maximum float64) error {
 		for _, path := range hits {
 			data, err := archive.Read(path)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			lines = append(lines, line{archive: archive, path: path, size: len(data)})
 		}
 		break
 	}
 	if len(lines) == 0 {
-		return fmt.Errorf("no lines for voice type %q in %s", voice, gameData)
+		return nil, fmt.Errorf("no lines for voice type %q in %s", voice, gameData)
+	}
+	return lines, nil
+}
+
+func build(voice, out string, seconds, minimum, maximum float64) error {
+	lines, err := voiceLines(voice)
+	if err != nil {
+		return err
 	}
 	slices.SortStableFunc(lines, func(a, b line) int { return b.size - a.size })
 	tmp, err := os.MkdirTemp("", "soulgem-voice-*")
@@ -85,6 +92,18 @@ func build(voice, out string, seconds, minimum, maximum float64) error {
 		return err
 	}
 	defer os.RemoveAll(tmp)
+	picked, err := pickLines(lines, tmp, seconds, minimum, maximum)
+	if err != nil {
+		return err
+	}
+	if err := concatenate(picked, tmp, out, seconds); err != nil {
+		return err
+	}
+	fmt.Printf("\nwrote %s: %vs from %d lines\n", out, seconds, len(picked))
+	return nil
+}
+
+func pickLines(lines []line, tmp string, seconds, minimum, maximum float64) ([]string, error) {
 	var picked []string
 	total := 0.0
 	for i, current := range lines {
@@ -94,11 +113,11 @@ func build(voice, out string, seconds, minimum, maximum float64) error {
 		wav := filepath.Join(tmp, fmt.Sprintf("%04d.wav", i))
 		fuz, err := current.archive.Read(current.path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		duration, err := decode(fuz, wav)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if duration < minimum || duration > maximum {
 			continue
@@ -107,19 +126,19 @@ func build(voice, out string, seconds, minimum, maximum float64) error {
 		total += duration
 		fmt.Printf("  + %4.1fs  %s\n", duration, filepath.Base(current.path))
 	}
+	if len(picked) == 0 {
+		return nil, fmt.Errorf("no voice lines within the requested duration range")
+	}
+	return picked, nil
+}
+
+func concatenate(picked []string, tmp, out string, seconds float64) error {
 	listing := filepath.Join(tmp, "list.txt")
-	file, err := os.Create(listing)
-	if err != nil {
-		return err
-	}
-	writer := bufio.NewWriter(file)
+	var listingText strings.Builder
 	for _, wav := range picked {
-		fmt.Fprintf(writer, "file '%s'\n", wav)
+		fmt.Fprintf(&listingText, "file '%s'\n", wav)
 	}
-	if err := writer.Flush(); err != nil {
-		return err
-	}
-	if err := file.Close(); err != nil {
+	if err := os.WriteFile(listing, []byte(listingText.String()), 0o600); err != nil {
 		return err
 	}
 	cmd := exec.Command("ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0",
@@ -128,7 +147,6 @@ func build(voice, out string, seconds, minimum, maximum float64) error {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("ffmpeg concat: %w: %s", err, output)
 	}
-	fmt.Printf("\nwrote %s: %vs from %d lines\n", out, seconds, len(picked))
 	return nil
 }
 

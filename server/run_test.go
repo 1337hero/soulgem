@@ -35,11 +35,35 @@ if [ "$1" = "-e" ]; then echo "/voices/test.wav"; exit 0; fi
 touch "$MARKERS/bun-run"
 sleep 30
 `)
-	s.stub("go", `touch "$MARKERS/go-build"`)
+	// Run the real launcher in a temporary project. Its build stub must create
+	// the TTS executable too, so this test cannot launch the user's real server.
+	script, err := os.ReadFile("run.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverDir := filepath.Join(dir, "server")
+	if err := os.Mkdir(serverDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(serverDir, "run.sh"), script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.stub("tts-server", `
+touch "$MARKERS/tts-started"
+trap 'kill "$child" 2>/dev/null; touch "$MARKERS/tts-stopped"; exit 0' TERM
+sleep 30 &
+child=$!
+wait
+`)
+	s.stub("go", `
+touch "$MARKERS/go-build"
+cp "$MARKERS/../tts-server" bin/tts-server
+`)
 	s.stub("whisper-server", `
 touch "$MARKERS/whisper-started"
-trap 'touch "$MARKERS/whisper-stopped"; exit 0' TERM
+trap 'kill "$child" 2>/dev/null; touch "$MARKERS/whisper-stopped"; exit 0' TERM
 sleep 30 &
+child=$!
 wait
 `)
 	return s
@@ -61,6 +85,7 @@ func (s *stack) ran(marker string) bool {
 
 func (s *stack) command() *exec.Cmd {
 	cmd := exec.Command("bash", "run.sh")
+	cmd.Dir = filepath.Join(s.dir, "server")
 	// Run in its own process group so the test can interrupt the whole stack
 	// the way Ctrl-C does; bash defers trap handling until the foreground
 	// command returns, so signalling bash alone would wait for it.
@@ -137,5 +162,23 @@ func TestCleanupStopsChildren(t *testing.T) {
 	_, _ = cmd.Process.Wait()
 	if !s.waitFor("whisper-stopped", 10*time.Second) {
 		t.Error("Whisper was left running after run.sh exited")
+	}
+	if !s.waitFor("tts-stopped", 10*time.Second) {
+		t.Error("TTS was left running after run.sh exited")
+	}
+}
+
+func TestTTSFailureStopsStartup(t *testing.T) {
+	s := newStack(t)
+	s.stub("tts-server", `exit 1`)
+	output, err := s.command().CombinedOutput()
+	if err == nil {
+		t.Fatalf("launcher accepted a failed TTS server: %s", output)
+	}
+	if !strings.Contains(string(output), "tts-server died at startup") {
+		t.Errorf("missing startup error: %s", output)
+	}
+	if s.ran("bun-run") {
+		t.Error("orchestrator started without TTS")
 	}
 }

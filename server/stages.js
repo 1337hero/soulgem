@@ -19,6 +19,8 @@ const RHUBARB = Bun.env.LYDIA_RHUBARB ?? join(import.meta.dir, 'rhubarb/rhubarb'
 const RECOGNIZER = Bun.env.LYDIA_RHUBARB_RECOGNIZER ?? 'phonetic'
 
 // webm/opus bytes -> text
+/** @param {Uint8Array} audioBytes
+ * @returns {Promise<string>} */
 export async function transcribe(audioBytes) {
   const tmp = `/tmp/lydia-utt-${crypto.randomUUID()}`
   try {
@@ -39,6 +41,8 @@ export async function transcribe(audioBytes) {
 // ref: absolute path to a 24 kHz mono clone wav; omit for the TTS server's
 // startup default. The engine re-encodes the ref every call, so per-request
 // voices cost nothing extra.
+/** @param {string} text
+ * @param {string | null} ref */
 export async function synthesize(text, ref) {
   const res = await fetch(TTS_URL, {
     method: 'POST',
@@ -50,16 +54,21 @@ export async function synthesize(text, ref) {
 }
 
 // wav bytes + text -> viseme cues, or null to fall back to jaw-flap
+/** @param {Uint8Array} wav
+ * @param {string} text
+ * @returns {Promise<import('./protocol.ts').Viseme[] | null>} */
 export async function lipSync(wav, text) {
   const tmp = `/tmp/lydia-lip-${crypto.randomUUID()}`
   try {
     await Bun.write(tmp + '.wav', wav)
     await Bun.write(tmp + '.txt', text)
     const out = await $`${RHUBARB} -f json --machineReadable -r ${RECOGNIZER} -d ${tmp + '.txt'} ${tmp + '.wav'}`.quiet()
-    return JSON.parse(out.stdout.toString()).mouthCues
+    /** @type {{mouthCues: {start: number, end: number, value: string}[]}} */
+    const result = JSON.parse(out.stdout.toString())
+    return result.mouthCues
       .map(c => ({ s: c.start, e: c.end, v: SHAPE_VISEME[c.value] ?? null }))
   } catch (e) {
-    console.error('rhubarb failed, falling back to jaw-flap:', e.message ?? e)
+    console.error('rhubarb failed, falling back to jaw-flap:', e instanceof Error ? e.message : e)
     return null
   } finally {
     await $`rm -f ${tmp + '.wav'} ${tmp + '.txt'}`.quiet()

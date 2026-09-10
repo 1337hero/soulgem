@@ -31,5 +31,15 @@ CHILDREN+=($!)
 # The Go server binds directly to qwentts.cpp's C ABI; no Python runtime.
 TTS_REF="$VOICE_REF" bin/tts-server &
 CHILDREN+=($!)
+TTS_PID=$!
+
+# If something else is squatting :8123 (e.g. a stale Python TTS), the Go server
+# dies at bind and every /speak silently hits the impostor. Fail loudly instead.
+sleep 1
+if ! kill -0 "$TTS_PID" 2>/dev/null; then
+  echo "FATAL: tts-server died at startup — is :8123 already taken?" >&2
+  ss -tlnp 2>/dev/null | grep 8123 >&2 || true
+  exit 1
+fi
 
 bun run server/companion.js

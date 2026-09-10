@@ -141,9 +141,17 @@ func (f *File) readSSESkin(skinRef int, shape *Shape, weights [][4]float64, bone
 		return nil
 	}
 
-	data, err := f.typedBlock(skin.dataRef, "NiSkinData", "skin data")
+	boneMatrices, err := f.readBindMatrices(skin, shape)
 	if err != nil {
 		return err
+	}
+	return f.applySSEWeights(c, skin, shape, weights, boneIndices, boneMatrices)
+}
+
+func (f *File) readBindMatrices(skin skinInstance, shape *Shape) ([]mathutil.Mat4, error) {
+	data, err := f.typedBlock(skin.dataRef, "NiSkinData", "skin data")
+	if err != nil {
+		return nil, err
 	}
 	data.Skip(52) // overall transform
 	numSkinBones := data.Count(int(data.U32()), 76, "skin bone")
@@ -152,7 +160,7 @@ func (f *File) readSSESkin(skinRef int, shape *Shape, weights [][4]float64, bone
 	for bone := range numSkinBones {
 		boneRef, ok := resolveBones(data, skin.boneRefs, bone)
 		if !ok {
-			return data.Err()
+			return nil, data.Err()
 		}
 		boneMatrices[bone] = f.boneTransform(data, boneRef, shape)
 		numVerts := data.Count(int(data.U16()), 6, "skin weight")
@@ -161,9 +169,13 @@ func (f *File) readSSESkin(skinRef int, shape *Shape, weights [][4]float64, bone
 		}
 	}
 	if err := data.Err(); err != nil {
-		return err
+		return nil, err
 	}
 
+	return boneMatrices, nil
+}
+
+func (f *File) applySSEWeights(c *binread.Cursor, skin skinInstance, shape *Shape, weights [][4]float64, boneIndices [][4]uint8, boneMatrices []mathutil.Mat4) error {
 	influences := make([][]mathutil.Influence, len(shape.Positions))
 	shape.SkinWeights = make([][]BoneWeight, len(shape.Positions))
 	for vertex := range shape.Positions {

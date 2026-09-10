@@ -1,5 +1,5 @@
 {
-  "model": "GLM-4.7-Flash-Uncensored",
+  "model": "GLM-4.7-Flash",
   "chat_template_kwargs": {
     "enable_thinking": false
   },

@@ -87,7 +87,16 @@ func TestParseSkinnedShape(t *testing.T) {
 	if len(shape.Triangles) != 2 {
 		t.Errorf("Triangles = %v", shape.Triangles)
 	}
-	if shape.Textures[0] != `textures\actors\skin.dds` || len(shape.Textures) != 2 {
+	checkSkinnedMaterial(t, shape)
+	// Skinning replaces the shape transform with baked bind-pose geometry.
+	if shape.Transform != nil {
+		t.Error("a skinned shape should have no residual transform")
+	}
+}
+
+func checkSkinnedMaterial(t *testing.T, shape *Shape) {
+	t.Helper()
+	if len(shape.Textures) != 2 || shape.Textures[0] != `textures\actors\skin.dds` {
 		t.Errorf("Textures = %v", shape.Textures)
 	}
 	if shape.Glossiness != 42 || shape.Specular != (mathutil.Vec3{0.25, 0.5, 0.75}) {
@@ -95,10 +104,6 @@ func TestParseSkinnedShape(t *testing.T) {
 	}
 	if shape.AlphaFlags == nil || *shape.AlphaFlags != 0x200 || shape.AlphaThreshold != 128 {
 		t.Errorf("AlphaFlags = %v, threshold = %d", shape.AlphaFlags, shape.AlphaThreshold)
-	}
-	// Skinning replaces the shape transform with baked bind-pose geometry.
-	if shape.Transform != nil {
-		t.Error("a skinned shape should have no residual transform")
 	}
 }
 

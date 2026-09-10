@@ -138,7 +138,12 @@ func parseXML(data []byte) (*Info, error) {
 	}
 	animation.walk(func(n *node) {
 		if n.attr("name") == "trackName" {
-			info.TrackNames = append(info.TrackNames, strings.TrimSpace(n.Content))
+			// hkxc renders a blank (all-NUL) track name as U+2400 (␀) rather
+			// than an empty string; strip it so these clips take the same
+			// positional skeleton_track_order fallback as vanilla ones. Left
+			// as-is, 97 identical "␀" names collapse to a single bone.
+			name := strings.TrimSpace(strings.ReplaceAll(n.Content, "␀", ""))
+			info.TrackNames = append(info.TrackNames, name)
 		}
 	})
 	if err := info.validate(); err != nil {

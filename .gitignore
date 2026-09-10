@@ -6,6 +6,7 @@ lydia.html
 texcache/
 anims/*
 !anims/.gitkeep
+music/
 tts_samples/
 
 # --- souls are personal (persona, voice, memory) — only Aster, the example, ships ---

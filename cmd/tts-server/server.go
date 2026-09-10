@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -22,17 +23,33 @@ type engine interface {
 	Version() string
 }
 
-// references caches decoded voice clone references by path. qwentts.cpp
-// re-encodes the reference on every call anyway, so this only saves the WAV
-// decode.
+// references caches decoded voice clone references by path. An overwritten
+// ref wav (mtime moved) is re-read on the next request; a deleted one keeps
+// serving the cache. qwentts.cpp re-encodes the reference on every call
+// anyway, so this only saves the WAV decode.
+type reference struct {
+	mtime   int64
+	samples []float32
+}
+
 type references struct {
 	mu     sync.Mutex
 	home   string
-	byPath map[string][]float32
+	byPath map[string]reference
+}
+
+func mtimeOf(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.ModTime().UnixNano()
 }
 
 func newReferences(home, defaultPath string, defaultReference []float32) *references {
-	return &references{home: home, byPath: map[string][]float32{defaultPath: defaultReference}}
+	return &references{home: home, byPath: map[string]reference{
+		defaultPath: {mtime: mtimeOf(defaultPath), samples: defaultReference},
+	}}
 }
 
 // load returns nil for an empty path, meaning "the engine's default voice".
@@ -41,18 +58,19 @@ func (r *references) load(path string) ([]float32, error) {
 		return nil, nil
 	}
 	path = expandHome(path, r.home)
+	mtime := mtimeOf(path)
 	r.mu.Lock()
 	cached, ok := r.byPath[path]
 	r.mu.Unlock()
-	if ok {
-		return cached, nil
+	if ok && (mtime == 0 || mtime == cached.mtime) {
+		return cached.samples, nil
 	}
 	loaded, _, err := tts.ReadReference(path)
 	if err != nil {
 		return nil, err
 	}
 	r.mu.Lock()
-	r.byPath[path] = loaded
+	r.byPath[path] = reference{mtime: mtime, samples: loaded}
 	r.mu.Unlock()
 	return loaded, nil
 }

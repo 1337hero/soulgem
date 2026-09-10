@@ -3,9 +3,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { GroundedSkybox } from 'three/addons/objects/GroundedSkybox.js'
-import { MOOD_KEYS, VISEME_KEYS } from './server/protocol.ts'
+import { MOOD_KEYS, VISEME_KEYS, parseServerMsg, sendClient } from './server/protocol.ts'
+import { createPlayback } from './client/playback.ts'
+import { replyText } from './client/captions.ts'
+import { element } from './client/dom.ts'
 
-const canvas = document.getElementById('view')
+const canvas = element('view', 'canvas')
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true })
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
 renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -43,8 +46,10 @@ scene.add(ambient)
 // per-soul lighting override (config.json `lighting`, sent in the state msg).
 // Always resets to the stock rig first so switching from a custom-lit soul to
 // a stock one doesn't inherit the previous soul's light.
+/** @type {{exposure: number, lights: [THREE.Light, number, number][]}} */
 const STOCK_RIG = { exposure: 1.25, lights: [[ambient, 0x606070, 0.35], [key, 0xffe8c8, 2.2],
                                             [fill, 0xbfd4ff, 0.35], [rim, 0xdfe8ff, 1.1]] }
+/** @param {import('./server/protocol.ts').Lighting | null} cfg */
 function applyLighting(cfg) {
   renderer.toneMappingExposure = STOCK_RIG.exposure
   for (const [light, color, intensity] of STOCK_RIG.lights) {
@@ -53,8 +58,8 @@ function applyLighting(cfg) {
   }
   if (!cfg) return
   if (cfg.exposure != null) renderer.toneMappingExposure = cfg.exposure
-  for (const [name, light] of [['ambient', ambient], ['key', key], ['fill', fill], ['rim', rim]]) {
-    const c = cfg[name]
+  for (const [name, light] of Object.entries({ ambient, key, fill, rim })) {
+    const c = cfg[/** @type {'ambient' | 'key' | 'fill' | 'rim'} */ (name)]
     if (!c) continue
     if (c.color != null) light.color.set(c.color)
     if (c.intensity != null) light.intensity = c.intensity
@@ -65,6 +70,7 @@ function applyLighting(cfg) {
 const shadowCanvas = document.createElement('canvas')
 shadowCanvas.width = shadowCanvas.height = 256
 const sctx = shadowCanvas.getContext('2d')
+if (!sctx) throw new Error('2D canvas is unavailable')
 const grad = sctx.createRadialGradient(128, 128, 20, 128, 128, 128)
 grad.addColorStop(0, 'rgba(0,0,0,0.45)')
 grad.addColorStop(1, 'rgba(0,0,0,0)')
@@ -79,7 +85,10 @@ ground.position.y = 0.01
 scene.add(ground)
 
 // ---- scene (equirect pano projected onto a grounded skybox) ----
+/** @type {GroundedSkybox | null} */
 let sky = null
+/** @param {string | null} url
+ * @param {{height?: number, radius?: number}} opts */
 async function setScene(url, opts = {}) {
   if (sky) { scene.remove(sky); sky.geometry.dispose(); sky = null }
   if (!url) {  // back to the void
@@ -98,24 +107,29 @@ async function setScene(url, opts = {}) {
   scene.environment = tex
 }
 
+/** @type {THREE.Group | null} */
 let model = null
+/** @type {THREE.Mesh | null} */
 let head = null          // skinned mesh with morph targets
+/** @type {THREE.Bone | null} */
 let headBone = null
+/** @type {THREE.Bone | null} */
 let spineBone = null
 const headBindWorldQ = new THREE.Quaternion()
 const spineBindQ = new THREE.Quaternion()
 
+/** @param {string} url */
 function loadBody(url) {
-  document.getElementById('loading').style.display = ''
+  element('loading', 'div').style.display = ''
   new GLTFLoader().load(url, gltf => {
   if (model) {
     // soul switch: drop the old body wholesale (GPU buffers included)
     scene.remove(model)
     model.traverse(o => {
-      if (!o.isMesh) return
+      if (!(o instanceof THREE.Mesh)) return
       o.geometry.dispose()
       for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
-        for (const k in m) if (m[k]?.isTexture) m[k].dispose()
+        for (const value of Object.values(m)) if (value instanceof THREE.Texture) value.dispose()
         m.dispose()
       }
     })
@@ -124,8 +138,9 @@ function loadBody(url) {
   }
   model = gltf.scene
   model.traverse(o => {
-    if (!o.isMesh) return
-    const m = o.material
+    if (!(o instanceof THREE.Mesh)) return
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+    if (!(m instanceof THREE.MeshStandardMaterial)) continue
     m.envMapIntensity = 0.8
     const name = o.name.toLowerCase()
     if (name.includes('hair')) {
@@ -142,40 +157,48 @@ function loadBody(url) {
       m.roughness = 0.75
       m.envMapIntensity = 0.6
     }
+    }
   })
   scene.add(model)
   model.traverse(o => {
-    if (o.isMesh && o.morphTargetDictionary && Object.keys(o.morphTargetDictionary).length) head = o
-    if (o.isBone && o.name === 'NPC_Head_Head') headBone = o
-    if (o.isBone && o.name === 'NPC_Spine2_Spn2') spineBone = o
-    if (o.isBone) boneByKey[norm(o.name)] = o
+    if (o instanceof THREE.Mesh && o.morphTargetDictionary && Object.keys(o.morphTargetDictionary).length) head = o
+    if (o instanceof THREE.Bone && o.name === 'NPC_Head_Head') headBone = o
+    if (o instanceof THREE.Bone && o.name === 'NPC_Spine2_Spn2') spineBone = o
+    if (o instanceof THREE.Bone) boneByKey[norm(o.name)] = o
   })
   // drift guard: a morph name the GLB lacks silently no-ops forever
-  const missing = [...VISEME_KEYS, ...MOOD_KEYS].filter(k => head?.morphTargetDictionary[k] === undefined)
+  const missing = [...VISEME_KEYS, ...MOOD_KEYS].filter(k => head?.morphTargetDictionary?.[k] === undefined)
   if (missing.length) console.warn('GLB is missing morph targets:', missing.join(', '))
   model.updateMatrixWorld(true)
   if (headBone) headBone.getWorldQuaternion(headBindWorldQ)
   if (spineBone) spineBindQ.copy(spineBone.quaternion)
-  document.getElementById('loading').style.display = 'none'
+  element('loading', 'div').style.display = 'none'
   }, undefined, e => {
     console.error('body load failed:', e)
-    document.getElementById('loading').textContent = 'body failed to load'
+    element('loading', 'div').textContent = 'body failed to load'
   })
 }
 loadBody('body.glb')
 
+/** @param {string} name
+ * @param {number} v */
 function setMorph(name, v) {
-  if (!head) return
-  const i = head.morphTargetDictionary[name]
-  if (i !== undefined) head.morphTargetInfluences[i] = v
+  const i = head?.morphTargetDictionary?.[name]
+  if (head?.morphTargetInfluences && i !== undefined) head.morphTargetInfluences[i] = v
 }
 
 // ---- idle animation playback (decoded Skyrim HKX clips) ----
+/** @type {Record<string, THREE.Bone>} */
 const boneByKey = {}          // normalized name -> Bone
+/** @param {string} s */
 const norm = s => s.replace(/[^A-Za-z0-9]/g, '')
+/** @type {Record<string, import('./client/types').Clip>} */
 const clips = {}              // name -> clip json
+/** @type {string[]} */
 let clipNames = []
+/** @type {import('./client/types').ClipState | null} */
 let cur = null                // { clip, t }
+/** @type {import('./client/types').ClipState | null} */
 let prev = null               // fading-out clip during crossfade
 let fade = 1                  // 0..1 crossfade progress
 const FADE_DUR = 0.6
@@ -186,14 +209,17 @@ async function loadAnims() {
     Object.assign(clips, window.LYDIA_ANIMS)
   } else {
     try {
+      /** @type {string[]} */
       const names = await (await fetch('anims/index.json')).json()
       await Promise.all(names.map(async n => {
         clips[n] = await (await fetch(`anims/${n}.json`)).json()
       }))
     } catch { return }
   }
-  // idle pool: everything except one-shot gestures and talking body language
-  clipNames = Object.keys(clips).filter(n => !n.startsWith('gesture_') && !n.startsWith('talk_'))
+  // idle pool: everything except one-shot gestures, talking body language, and
+  // dance clips (dances only play on request, never in the idle rotation)
+  clipNames = Object.keys(clips).filter(n =>
+    !n.startsWith('gesture_') && !n.startsWith('talk_') && !n.startsWith('dance_'))
   if (clipNames.length) {
     cur = { clip: clips[clipNames[0]], t: 0, name: clipNames[0] }
     scheduleSwitch()
@@ -205,6 +231,7 @@ function scheduleSwitch() {
   switchAt = timer.getElapsed() + 15 + Math.random() * 15
 }
 
+/** @param {string} name */
 function playIdle(name) {
   if (!clips[name] || (cur && clips[name] === cur.clip)) return
   prev = cur
@@ -213,17 +240,70 @@ function playIdle(name) {
 }
 
 // one-shot gesture: crossfade in, play once, crossfade back to the idle
+/** @type {string | null} */
 let gestureReturn = null
 
+/** @param {string} name */
 function playGesture(name) {
   if (!clips[name] || gestureReturn) return
   gestureReturn = cur?.name ?? clipNames[0]
   playIdle(name)
 }
 
+// ---- dance: a looping dance clip + its music track, on request ----
+// Unlike a one-shot gesture the dance loops (via the sampler's modulo wrap)
+// and carries audio; it runs until the cap, the track ends, or a barge-in.
+const DANCE_MS = 40000        // cap so a full-length track can't hijack the scene
+const DUCK_VOL = 0.28, FULL_VOL = 0.85
+let dancing = false
+/** @type {HTMLAudioElement | null} */
+let danceMusic = null         // the live HTMLAudioElement, kept for ducking + fade
+/** @type {ReturnType<typeof setTimeout> | null} */
+let danceTimer = null
+
+function startDance() {
+  const names = Object.keys(clips).filter(n => n.startsWith('dance_'))
+  if (!names.length) return
+  const name = names[Math.floor(Math.random() * names.length)]
+  stopDance(false)            // clear any dance already running
+  dancing = true
+  gestureReturn = null        // a dance overrides any pending gesture return
+  playIdle(name)              // crossfade in; the clip loops on its own
+  danceMusic = new Audio(`music/${name}.ogg`)   // dance_1 clip <-> dance_1.ogg
+  danceMusic.volume = speech.speaking ? DUCK_VOL : FULL_VOL
+  danceMusic.onended = () => stopDance()
+  danceMusic.play().catch(() => {})             // no music if autoplay is blocked
+  danceTimer = setTimeout(() => stopDance(), DANCE_MS)
+}
+
+function stopDance(fade = true) {
+  if (danceTimer) clearTimeout(danceTimer)
+  const m = danceMusic
+  danceMusic = null
+  const wasDancing = dancing
+  dancing = false
+  if (m) {
+    m.onended = null
+    if (fade) {
+      const id = setInterval(() => {
+        m.volume = Math.max(0, m.volume - 0.06)
+        if (m.volume <= 0) { clearInterval(id); m.pause() }
+      }, 40)
+    } else m.pause()
+  }
+  // hand the body back to a fresh idle
+  if (wasDancing && clipNames.length) {
+    playIdle(clipNames[Math.floor(Math.random() * clipNames.length)])
+    scheduleSwitch()
+  }
+}
+
 const _qa = new THREE.Quaternion()
 const _qb = new THREE.Quaternion()
 
+/** @param {import('./client/types').ClipState} state
+ * @param {number} dt
+ * @param {number} weight */
 function sampleInto(state, dt, weight) {
   const c = state.clip
   state.t = (state.t + dt) % c.duration
@@ -249,6 +329,8 @@ function sampleInto(state, dt, weight) {
   }
 }
 
+/** @param {number} dt
+ * @param {number} t */
 function updateIdle(dt, t) {
   if (!cur) return false
   if (gestureReturn && cur.t + dt >= cur.clip.duration - Math.min(FADE_DUR, cur.clip.duration / 3)) {
@@ -256,8 +338,8 @@ function updateIdle(dt, t) {
     gestureReturn = null
     playIdle(back)
   }
-  if (t >= switchAt && clipNames.length > 1 && !gestureReturn) {
-    const others = clipNames.filter(n => clips[n] !== cur.clip)
+  if (t >= switchAt && clipNames.length > 1 && !gestureReturn && !dancing) {
+    const others = clipNames.filter(n => clips[n] !== cur?.clip)
     playIdle(others[Math.floor(Math.random() * others.length)])
     scheduleSwitch()
   }
@@ -279,6 +361,7 @@ let blinkAt = 2.0     // next blink time
 let blinkT = -1       // progress through current blink, -1 = idle
 const BLINK_DUR = 0.22
 
+/** @param {number} t */
 function blinkCurve(t) {  // 0..1 -> lid closure, fast close slow open
   return t < 0.4 ? t / 0.4 : 1 - (t - 0.4) / 0.6
 }
@@ -286,11 +369,11 @@ function blinkCurve(t) {  // 0..1 -> lid closure, fast close slow open
 let spin = false
 const alive = true
 controls.addEventListener('start', () => { spin = false })
-const spinBtn = document.getElementById('spin')
+const spinBtn = element('spin', 'button')
 spinBtn.textContent = 'rotate'
 spinBtn.addEventListener('click', e => {
   spin = !spin
-  e.target.textContent = spin ? 'pause' : 'rotate'
+  spinBtn.textContent = spin ? 'pause' : 'rotate'
 })
 
 const look = { yaw: 0, pitch: 0 }
@@ -302,8 +385,11 @@ const _target = new THREE.Quaternion()
 const _e = new THREE.Euler()
 
 window.THREE = THREE  // console/scene experiments
-window.viewer = { camera, controls, scene, renderer, setMorph, playIdle, playGesture, setScene, gaze, applyLighting,
-  get head() { return head }, get clips() { return clips } }
+export const viewer = { camera, controls, scene, renderer, setMorph, playIdle, playGesture, setScene, gaze, applyLighting,
+  get head() { return head }, get clips() { return clips },
+  /** @param {string} text */
+  say: text => sendTurn({ type: 'text', text }), startDance, stopDance }
+window.viewer = viewer
 
 renderer.setAnimationLoop(() => {
   resize()
@@ -315,50 +401,72 @@ renderer.setAnimationLoop(() => {
 
   if (alive && model) {
     updateMouth()
+    updateDanceVolume(dt)
     const hasIdle = updateIdle(dt, t)
     // breathing fallback when no idle clip drives the spine
     if (!hasIdle && spineBone) {
       _e.set(Math.sin(t * 1.5) * 0.010, 0, 0)
       spineBone.quaternion.copy(spineBindQ).multiply(_target.setFromEuler(_e))
     }
-    // look-at camera (eye contact with the viewer) layered over the head pose
-    if (headBone && !spin) {
-      const k = 1 - Math.exp(-dt * 6)
-      headBone.getWorldPosition(_headPos)
-      const dx = camera.position.x - _headPos.x
-      const dy = camera.position.y - _headPos.y
-      const dz = camera.position.z - _headPos.z
-      const yawT = Math.atan2(dx, dz)
-      const pitchT = -Math.atan2(dy, Math.hypot(dx, dz)) + gaze.pitchBias
-      look.yaw += (THREE.MathUtils.clamp(yawT, -gaze.yawMax, gaze.yawMax) - look.yaw) * k
-      look.pitch += (THREE.MathUtils.clamp(pitchT, -gaze.pitchMax, gaze.pitchMax) - look.pitch) * k
-      _e.set(look.pitch + Math.sin(t * 0.47) * 0.01,
-             look.yaw + Math.sin(t * 0.31) * 0.015 + Math.sin(t * 0.73) * 0.01, 0)
-      headBone.parent.getWorldQuaternion(_pq)
-      const animWorld = _qa.copy(_pq).multiply(headBone.quaternion)
-      _target.setFromEuler(_e).multiply(animWorld)
-      headBone.quaternion.copy(_pq.invert().multiply(_target))
-    }
-    // blink
-    if (head) {
-      if (blinkT < 0 && t >= blinkAt) blinkT = 0
-      if (blinkT >= 0) {
-        blinkT += dt
-        const v = blinkT >= BLINK_DUR ? 0 : blinkCurve(blinkT / BLINK_DUR)
-        setMorph('BlinkLeft', v)
-        setMorph('BlinkRight', v)
-        if (blinkT >= BLINK_DUR) {
-          blinkT = -1
-          blinkAt = t + 2 + Math.random() * 4
-          if (Math.random() < 0.12) blinkAt = t + 0.25  // occasional double blink
-        }
-      }
-    }
+    updateGaze(dt, t)
+    updateBlink(dt, t)
   }
 
   controls.update()
   renderer.render(scene, camera)
 })
+
+/** @param {number} dt */
+function updateDanceVolume(dt) {
+  // duck the dance music under her voice, ease it back up once she stops
+  if (dancing && danceMusic) {
+    const target = speech.speaking ? DUCK_VOL : FULL_VOL
+    danceMusic.volume += (target - danceMusic.volume) * (1 - Math.exp(-dt * 4))
+  }
+}
+
+/** @param {number} dt
+ * @param {number} t */
+function updateGaze(dt, t) {
+  // look-at camera (eye contact with the viewer) layered over the head pose
+  if (headBone && !spin) {
+    const k = 1 - Math.exp(-dt * 6)
+    headBone.getWorldPosition(_headPos)
+    const dx = camera.position.x - _headPos.x
+    const dy = camera.position.y - _headPos.y
+    const dz = camera.position.z - _headPos.z
+    const yawT = Math.atan2(dx, dz)
+    const pitchT = -Math.atan2(dy, Math.hypot(dx, dz)) + gaze.pitchBias
+    look.yaw += (THREE.MathUtils.clamp(yawT, -gaze.yawMax, gaze.yawMax) - look.yaw) * k
+    look.pitch += (THREE.MathUtils.clamp(pitchT, -gaze.pitchMax, gaze.pitchMax) - look.pitch) * k
+    _e.set(look.pitch + Math.sin(t * 0.47) * 0.01,
+           look.yaw + Math.sin(t * 0.31) * 0.015 + Math.sin(t * 0.73) * 0.01, 0)
+    headBone.parent?.getWorldQuaternion(_pq)
+    const animWorld = _qa.copy(_pq).multiply(headBone.quaternion)
+    _target.setFromEuler(_e).multiply(animWorld)
+    headBone.quaternion.copy(_pq.invert().multiply(_target))
+  }
+}
+
+/** @param {number} dt
+ * @param {number} t */
+function updateBlink(dt, t) {
+  // blink
+  if (head) {
+    if (blinkT < 0 && t >= blinkAt) blinkT = 0
+    if (blinkT >= 0) {
+      blinkT += dt
+      const v = blinkT >= BLINK_DUR ? 0 : blinkCurve(blinkT / BLINK_DUR)
+      setMorph('BlinkLeft', v)
+      setMorph('BlinkRight', v)
+      if (blinkT >= BLINK_DUR) {
+        blinkT = -1
+        blinkAt = t + 2 + Math.random() * 4
+        if (Math.random() < 0.12) blinkAt = t + 0.25  // occasional double blink
+      }
+    }
+  }
+}
 
 function resize() {
   const w = canvas.clientWidth, h = canvas.clientHeight
@@ -370,18 +478,40 @@ function resize() {
 }
 
 // ---- voice loop client (P2) ----
-const talkBtn = document.getElementById('talk')
-const captionEl = document.getElementById('caption')
-const meterEl = document.getElementById('meter')
+const talkBtn = element('talk', 'button')
+const captionEl = element('caption', 'div')
+let transcript = ''
+let reply = ''
+/** @param {string} text */
+function showTranscript(text) {
+  transcript = text
+  reply = ''
+  renderCaption()
+}
+/** @param {import('./client/playback.ts').SpeechChunk} msg */
+function updateCaption(msg) {
+  reply = replyText(reply, msg)
+  renderCaption()
+}
+function renderCaption() {
+  const you = document.createElement('span')
+  you.className = 'you'
+  you.textContent = transcript ? `"${transcript}"` : ''
+  captionEl.replaceChildren(you, document.createTextNode(reply))
+}
+const meterEl = element('meter', 'div')
+/** @param {number | null} meter
+ * @param {string | null} tier */
 const showMeter = (meter, tier) => {
   meterEl.textContent = meter == null ? '' : `regard ${meter}/100 · ${tier}`
 }
 
 // soul picker: one button per soul from /souls; clicking asks the server to
 // switch (the resulting 'soul' broadcast does the actual reload, all tabs)
-const soulsEl = document.getElementById('souls')
+const soulsEl = element('souls', 'div')
+/** @param {string} name */
 function markActiveSoul(name) {
-  for (const b of soulsEl?.children ?? []) b.classList.toggle('active', b.dataset.name === name)
+  for (const b of soulsEl.children) if (b instanceof HTMLElement) b.classList.toggle('active', b.dataset.name === name)
 }
 if (soulsEl && location.protocol !== 'file:') {
   fetch('souls').then(r => r.json()).then(souls => {
@@ -392,112 +522,117 @@ if (soulsEl && location.protocol !== 'file:') {
       b.dataset.name = s.name
       b.classList.toggle('active', s.active)
       b.onclick = () => ws?.readyState === WebSocket.OPEN
-        && ws.send(JSON.stringify({ type: 'switch_soul', name: s.name }))
+        && sendClient(ws, { type: 'switch_soul', name: s.name })
       soulsEl.appendChild(b)
     }
   }).catch(() => {})
 }
+/** @type {WebSocket | null} */
 let ws = null
+/** @type {MediaRecorder | null} */
 let recorder = null
+/** @type {Blob[]} */
 let recChunks = []
+/** @type {AudioContext | null} */
 let audioCtx = null
 
 // Keep the audio sink awake: PipeWire suspends idle sinks, and a woken sink
 // eats the first ~0.5s of a chunk — lips lead, sound joins mid-sentence. A
 // silent constant source holds the stream open from the first user gesture.
+/** @type {ConstantSourceNode | null} */
+let audioKeepalive = null
 function ensureAudio() {
   audioCtx ??= new AudioContext()
   if (audioCtx.state === 'suspended') audioCtx.resume()
-  if (!ensureAudio.keepalive) {
+  if (!audioKeepalive) {
     const src = new ConstantSourceNode(audioCtx, { offset: 0 })
     src.connect(audioCtx.destination)
     src.start()
-    ensureAudio.keepalive = src
+    audioKeepalive = src
     // one shared analyser for the jaw-flap loudness fallback — a per-chunk
     // analyser never gets disconnected and leaks one node per sentence
+  }
+  if (!analyser) {
     analyser = audioCtx.createAnalyser()
     analyser.fftSize = 512
     analyser.connect(audioCtx.destination)
   }
+  return { context: audioCtx, output: analyser }
 }
 window.addEventListener('pointerdown', ensureAudio, { capture: true })
 window.addEventListener('keydown', ensureAudio, { capture: true })
+/** @type {AnalyserNode | null} */
 let analyser = null
-let speaking = false
+const speech = createPlayback({
+  prepare: prepareAudio,
+  onChunk(msg) { updateCaption(msg); applySpeechGesture(msg) },
+  onIdle: finishSpeaking,
+  onStop() {
+    stopDance(false)
+    setMood(null)
+    talkBtn.classList.remove('busy')
+  },
+  onError(error) {
+    captionEl.textContent = `(audio failed: ${String(error)})`
+  },
+})
 
 function connectWS() {
   if (location.protocol === 'file:') return
   ws = new WebSocket(`ws://${location.host}/ws`)
   ws.onmessage = e => {
-    const msg = JSON.parse(e.data)
+    const msg = parseServerMsg(JSON.parse(e.data))
     if (msg.type === 'state') {
       showMeter(msg.meter, msg.tier)
       applyLighting(msg.lighting)
     } else if (msg.type === 'transcript') {
-      if (speaking) { stopSpeaking(); talkBtn.classList.add('busy') }
-      captionEl.innerHTML = `<span class="you">"${msg.text}"</span>`
+      if (speech.speaking) { stopSpeaking(); talkBtn.classList.add('busy') }
+      showTranscript(msg.text)
     } else if (msg.type === 'speak') {
       onSpeak(msg)
     } else if (msg.type === 'soul') {
       // active soul changed (this tab or another): drop any speech in flight,
       // reload the body; the preceding state msg already re-applied lighting
       stopSpeaking()
-      captionEl.textContent = ''
+      showTranscript('')
       loadBody(msg.glb)
       markActiveSoul(msg.name)
     } else if (msg.type === 'visemes') {
       // late-arriving track for a chunk already sent; cue times are absolute
       // on the chunk clock, so patching mid-playback stays in sync
-      const hit = playingMsg?.seq === msg.seq ? playingMsg
-                : speakQueue.find(m => m.seq === msg.seq)
-      if (hit) hit.visemes = msg.visemes
+      speech.patchVisemes(msg.seq, msg.visemes)
     } else if (msg.type === 'speak_end') {
-      endReceived = true
-      if (!playingMsg && !speakQueue.length) finishSpeaking()
+      speech.end()
     } else if (msg.type === 'error') {
+      stopSpeaking()
       captionEl.textContent = `(${msg.error})`
       talkBtn.classList.remove('busy')
     }
   }
-  ws.onclose = () => setTimeout(connectWS, 2000)
+  ws.onclose = () => { stopSpeaking(); setTimeout(connectWS, 2000) }
 }
 connectWS()
 
+/** @param {Record<string, number> | null} mood */
 function setMood(mood) {
   for (const k of MOOD_KEYS) setMorph(k, mood?.[k] ?? 0)
 }
 
-// sentence chunks queue up; each carries its own audio + rhubarb viseme track
-const speakQueue = []
-let playingMsg = null
-let playStart = 0     // audioCtx.currentTime when the current chunk began
-let curSrc = null     // live AudioBufferSourceNode, for barge-in
-let endReceived = false  // server sent speak_end for the current turn
-
-function stopSpeaking() {
-  if (curSrc) { curSrc.onended = null; try { curSrc.stop() } catch { } curSrc = null }
-  speakQueue.length = 0
-  playingMsg = null
-  speaking = false
-  endReceived = false
-  setMood(null)
-  talkBtn.classList.remove('busy')
-}
+function stopSpeaking() { speech.stop() }
 
 function finishSpeaking() {
-  playingMsg = null
-  speaking = false
-  endReceived = false
   setMood(null)
   talkBtn.classList.remove('busy')
-  setTimeout(() => { if (!speaking) captionEl.textContent = '' }, 4000)
+  const finishedReply = reply
+  setTimeout(() => {
+    if (!speech.current && reply === finishedReply && !talkBtn.classList.contains('busy')) showTranscript('')
+  }, 4000)
 }
 
-function onSpeak(msg) {
-  speakQueue.push(msg)
-  if (!playingMsg) playNext()
-}
+/** @param {import('./client/playback.ts').SpeechChunk} msg */
+function onSpeak(msg) { void speech.enqueue(msg) }
 
+/** @param {string} b64 */
 function b64ToArrayBuffer(b64) {
   const bin = atob(b64)
   const bytes = new Uint8Array(bin.length)
@@ -505,47 +640,48 @@ function b64ToArrayBuffer(b64) {
   return bytes.buffer
 }
 
-async function playNext() {
-  const msg = speakQueue.shift()
-  if (!msg) {
-    if (endReceived) { finishSpeaking(); return }
-    // queue starved mid-stream: mouth relaxes, stay busy until more arrives
-    playingMsg = null
-    speaking = false
-    return
-  }
-  playingMsg = msg
+/** @param {import('./client/playback.ts').SpeechChunk} msg */
+function applySpeechGesture(msg) {
   if (msg.seq === 0) {
-    captionEl.innerHTML = `${captionEl.innerHTML.match(/<span[^>]*>.*?<\/span>/)?.[0] ?? ''}${msg.sentence}`
     showMeter(msg.meter, msg.tier)
     setMood(msg.mood)
-    if (msg.gesture === 'idle_switch' && clipNames.length > 1) {
+    if (msg.gesture === 'dance') {
+      startDance()
+    } else if (msg.gesture === 'idle_switch' && clipNames.length > 1) {
       const others = clipNames.filter(n => clips[n] !== cur?.clip)
       playIdle(others[Math.floor(Math.random() * others.length)])
     } else if (msg.gesture && msg.gesture !== 'none' && clips['gesture_' + msg.gesture]) {
       playGesture('gesture_' + msg.gesture)
     }
   }
-  // talking body language: a dialogue one-shot per chunk unless a gesture is playing
-  if (!gestureReturn) {
+  // talking body language: a dialogue one-shot per chunk unless a gesture or
+  // dance is already driving the body
+  if (!gestureReturn && !dancing) {
     const angry = msg.emotion === 'annoyed' || (msg.mood?.MoodAnger ?? 0) > 0.2
     const pool = Object.keys(clips).filter(n =>
       angry ? n.startsWith('talk_angry') : (n.startsWith('talk_') && !n.startsWith('talk_angry')))
     if (pool.length && Math.random() < 0.8) playGesture(pool[Math.floor(Math.random() * pool.length)])
-  } else {
-    captionEl.innerHTML += ' ' + msg.sentence
   }
-  ensureAudio()
-  await audioCtx.resume()
-  const buf = await audioCtx.decodeAudioData(b64ToArrayBuffer(msg.audio))
-  const src = audioCtx.createBufferSource()
-  src.buffer = buf
-  src.connect(analyser)
-  src.onended = playNext
-  curSrc = src
-  speaking = true
-  playStart = audioCtx.currentTime
-  src.start()
+}
+
+/** @param {import('./client/playback.ts').SpeechChunk} msg
+ * @param {() => void} ended */
+async function prepareAudio(msg, ended) {
+  const { context, output } = ensureAudio()
+  await context.resume()
+  const buf = await context.decodeAudioData(b64ToArrayBuffer(msg.audio))
+  return () => {
+    const src = context.createBufferSource()
+    src.buffer = buf
+    src.connect(output)
+    src.onended = () => { src.disconnect(); ended() }
+    const startedAt = context.currentTime
+    src.start()
+    return {
+      startedAt,
+      stop() { src.onended = null; src.stop(); src.disconnect() },
+    }
+  }
 }
 
 // mouth driver — called every rendered frame from the animation loop.
@@ -553,21 +689,27 @@ async function playNext() {
 const VISEME_LEAD = 0.06   // open the mouth slightly before the sound
 const _fft = new Uint8Array(256)
 
+/** @param {string} name */
+function morphValue(name) {
+  const index = head?.morphTargetDictionary?.[name]
+  return index === undefined ? 0 : head?.morphTargetInfluences?.[index] ?? 0
+}
+
 function updateMouth() {
   if (!head) return
-  if (!speaking) {
+  if (!speech.speaking) {
     for (const k of VISEME_KEYS) {
-      const curV = head.morphTargetInfluences[head.morphTargetDictionary[k]] ?? 0
+      const curV = morphValue(k)
       if (curV > 0.001) setMorph(k, curV * 0.7)
     }
     return
   }
-  const track = playingMsg?.visemes
+  const track = speech.current?.visemes
   if (track && audioCtx) {
-    const t = audioCtx.currentTime - playStart + VISEME_LEAD
+    const t = audioCtx.currentTime - speech.startedAt + VISEME_LEAD
     const cue = track.find(c => t >= c.s && t < c.e)
     for (const k of VISEME_KEYS) {
-      const curV = head.morphTargetInfluences[head.morphTargetDictionary[k]] ?? 0
+      const curV = morphValue(k)
       const target = cue?.v === k ? (k === 'BigAah' ? 0.9 : 0.75) : 0
       const rate = target > curV ? 0.65 : 0.35   // fast attack, slower release
       setMorph(k, curV + (target - curV) * rate)
@@ -577,20 +719,21 @@ function updateMouth() {
     let sum = 0
     for (let i = 2; i < 64; i++) sum += _fft[i]
     const level = Math.min(1, (sum / 62 / 255) * 3.2)
-    const curV = head.morphTargetInfluences[head.morphTargetDictionary.BigAah] ?? 0
+    const curV = morphValue('BigAah')
     setMorph('BigAah', curV + (level * 0.55 - curV) * 0.45)
   }
 }
 
 // Every turn (voice, typed, or viewer.say) goes through here: barge-in over a
 // reply in flight, then send and show the pending state.
+/** @param {import('./server/protocol.ts').ClientMsg} payload */
 function sendTurn(payload) {
   if (!ws || ws.readyState !== 1) return false
-  if (speaking || talkBtn.classList.contains('busy')) {
-    ws.send(JSON.stringify({ type: 'interrupt' }))
+  if (speech.speaking || talkBtn.classList.contains('busy')) {
+    sendClient(ws, { type: 'interrupt' })
     stopSpeaking()
   }
-  ws.send(JSON.stringify(payload))
+  sendClient(ws, payload)
   talkBtn.classList.add('busy')
   captionEl.textContent = '…'
   return true
@@ -599,8 +742,8 @@ function sendTurn(payload) {
 async function startRec() {
   if (!ws || ws.readyState !== 1) return
   // barge-in: talking over her (or over a pending reply) cancels the turn
-  if (speaking || talkBtn.classList.contains('busy')) {
-    ws.send(JSON.stringify({ type: 'interrupt' }))
+  if (speech.speaking || talkBtn.classList.contains('busy')) {
+    sendClient(ws, { type: 'interrupt' })
     stopSpeaking()
   }
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -615,7 +758,7 @@ async function startRec() {
     // interrupt already fired in startRec; just send and mark pending
     talkBtn.classList.add('busy')
     captionEl.textContent = '…'
-    ws.send(JSON.stringify({ type: 'audio', data: b64 }))
+    if (ws?.readyState === WebSocket.OPEN) sendClient(ws, { type: 'audio', data: b64 })
   }
   recorder.start()
   talkBtn.classList.add('rec')
@@ -633,9 +776,10 @@ talkBtn.addEventListener('pointerleave', stopRec)
 // ---- text input mode ----
 // The talk button and the input swap in the same slot; 'i' opens, Esc returns
 // to voice. Choice persists so a typed session survives a reload.
-const textEl = document.getElementById('textin')
-const modeBtn = document.getElementById('modeBtn')
+const textEl = element('textin', 'input')
+const modeBtn = element('modeBtn', 'button')
 
+/** @param {boolean} on */
 function setTextMode(on) {
   textEl.classList.toggle('hidden', !on)
   talkBtn.classList.toggle('hidden', on)
@@ -658,7 +802,8 @@ textEl.addEventListener('keydown', e => {
 })
 
 // Push-to-talk keys must never fire while typing — 't' appears in most words.
-const typing = e => e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA'
+/** @param {KeyboardEvent} e */
+const typing = e => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement
 window.addEventListener('keydown', e => {
   if (typing(e)) return
   if (e.key === 't' && !e.repeat) startRec()
@@ -666,5 +811,8 @@ window.addEventListener('keydown', e => {
 })
 window.addEventListener('keyup', e => { if (!typing(e) && e.key === 't') stopRec() })
 
-// console path, same barge-in behavior as the UI
-window.viewer.say = text => sendTurn({ type: 'text', text })
+// "dance for me": a hidden turn — she agrees in her own words and the reply's
+// gesture:'dance' kicks off the loop + music (see applySpeechGesture). Barge-in handled
+// by sendTurn, so pressing it mid-speech just restarts the moment.
+element('dance', 'button').addEventListener('click',
+  () => sendTurn({ type: 'text', text: 'Dance for me!' }))
