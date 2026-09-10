@@ -11,11 +11,11 @@ import (
 )
 
 func TestVanillaFemaleHead(t *testing.T) {
-	const gameData = "/home/mikekey/.local/share/Steam/steamapps/common/Skyrim Special Edition/Data"
-	path := filepath.Join(gameData, "Skyrim - Meshes0.bsa")
+	const gameData = "/home/mikekey/.local/share/Steam/steamapps/common/SkyrimSE/Data"
+	path := filepath.Join(gameData, "SkyrimSE - Meshes0.bsa")
 	archive, err := bsa.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		t.Skip("Skyrim assets are not installed")
+		t.Skip("Game assets are not installed")
 	}
 	if err != nil {
 		t.Fatal(err)

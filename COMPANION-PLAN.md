@@ -68,7 +68,7 @@ pipeline:
 NiSkinData weights + partition weights — currently we *bake* them; instead
 emit them). Result: Lydia poseable in three.js at runtime.
 
-**3b. Face morphs — the killer feature.** Skyrim ships FaceGen `.tri` files
+**3b. Face morphs — the killer feature.** The game ships FaceGen `.tri` files
 with per-vertex morph deltas for the exact 996-vert head:
 - **phonemes** (visemes): Aah, BigAah, BMP, ChJSh, DST, Eee, Eh, FV, I, K,
   N, Oh, OohQ, R, Th, W — game-quality lip sync data
@@ -84,14 +84,14 @@ the same base head).
 1. *Procedural idle* (cheap, ~90% of perceived life): breathing (chest
    scale/spine bone), weight sway, head+eyes look-at cursor/camera, blink
    timer, micro head motions while speaking. Pure three.js bone math.
-2. *Gesture clips*: retarget Mixamo clips to the Skyrim skeleton
+2. *Gesture clips*: retarget Mixamo clips to the game skeleton
    (SkeletonUtils.retarget or a Blender pass) — wave, hair tuck, lean, spin.
    Map to the avatar_actions vocabulary.
 3. ~~(Stretch)~~ ✅ **DONE 2026-07-26** — `cmd/hkx-anim` decodes SSE
    hkaSplineCompressedAnimation directly (hkxc → XML → spline/40-bit-quat
    decode ported from HavokLib). PrettyFemaleIdles' 5 idle loops decoded to
    `anims/*.json`; viewer plays them with crossfade + random cycling,
-   look-at layered on top. ANY Skyrim animation is now importable —
+   look-at layered on top. ANY animation is now importable —
    P3 gesture clips come from this pipeline, not Mixamo retargeting.
 
 **3d. Clothes.** Extract her steel armor set (or any outfit) from BSAs —
@@ -520,13 +520,13 @@ Weightiest first:
   deliberately, not a config choice. Her docs are intimate — souls/ gitignore
   handles the repo, but demos/screenshots could still leak them.
 - **Public-anything is IP-bound.** The repo is clean (pipeline only), but the
-  rendered character, animations, and screenshots are Bethesda-derived. A
-  public soulgem.ai needs a non-Skyrim demo soul (own body model, synthetic
+  rendered character, animations, and screenshots are game-derived. A
+  public soulgem.ai needs a non-game demo soul (own body model, synthetic
   voice) — the example soul has a persona but no legal body/voice yet.
   NOTE: Creation Kit characters DON'T solve this (your design, their meshes).
   Truly-owned path: VRoid Studio → VRM (free, standardized viseme/blink
   blendshapes, three.js-loadable) + Qwen VoiceDesign synthetic voice +
-  Mixamo clips for the non-Skyrim skeleton. Pipeline change needed: move
+  Mixamo clips for the non-game skeleton. Pipeline change needed: move
   SHAPE_VISEME (Rhubarb→morph-name map) into per-soul config.json so bodies
   with non-TRI morph names plug in.
 - **Streaming TTS changes viseme timing — mostly dissolved 2026-07-27.**

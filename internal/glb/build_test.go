@@ -13,7 +13,7 @@ import (
 
 // scene builds a two-joint, two-part character: one textured skinned part with
 // morph targets and one untextured tinted part. It exercises every branch the
-// writer has without needing a Skyrim install.
+// writer has without needing the game installed.
 func scene(t *testing.T, pngPath string) *Scene {
 	t.Helper()
 	return &Scene{

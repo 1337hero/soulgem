@@ -5,7 +5,7 @@ import (
 	"math"
 )
 
-// builder assembles a synthetic Skyrim SE NIF. The real ones are Bethesda
+// builder assembles a synthetic game NIF. The real ones are game
 // assets that cannot be committed, so the tests build files that exercise the
 // same layouts: a node tree, a BSTriShape with an interleaved vertex buffer, a
 // dismembered skin with partitions, a lighting shader, and alpha.

@@ -1,4 +1,4 @@
-// Package nif implements the subset of Skyrim LE/SSE NIF needed by Soulgem's
+// Package nif implements the subset of game LE/SSE NIF needed by Soulgem's
 // character pipeline.
 //
 // A NIF is a flat array of typed blocks that reference each other by index. The

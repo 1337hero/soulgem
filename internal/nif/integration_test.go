@@ -13,7 +13,7 @@ func TestSkinnedSSEOutfit(t *testing.T) {
 	path := filepath.Join("..", "..", "texcache", "vampirerobesf_alt_1.nif")
 	file, err := nif.Open(path, nil)
 	if errors.Is(err, os.ErrNotExist) {
-		t.Skip("local Skyrim NIF fixture is not installed")
+		t.Skip("local NIF fixture is not installed")
 	}
 	if err != nil {
 		t.Fatal(err)

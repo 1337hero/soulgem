@@ -1,4 +1,4 @@
-// Package anim decodes Skyrim hkaSplineCompressedAnimation tracks.
+// Package anim decodes game hkaSplineCompressedAnimation tracks.
 //
 // The pipeline is one stage per file: hkx.go shells out to hkxc for the binary
 // container, xml.go extracts the animation header and spline block from its

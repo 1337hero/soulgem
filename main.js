@@ -187,7 +187,7 @@ function setMorph(name, v) {
   if (head?.morphTargetInfluences && i !== undefined) head.morphTargetInfluences[i] = v
 }
 
-// ---- idle animation playback (decoded Skyrim HKX clips) ----
+// ---- idle animation playback (decoded HKX clips) ----
 /** @type {Record<string, THREE.Bone>} */
 const boneByKey = {}          // normalized name -> Bone
 /** @param {string} s */

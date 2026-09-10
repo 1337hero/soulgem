@@ -7,7 +7,7 @@ import (
 	"soulgem/internal/binread"
 )
 
-// supportedVersion is Skyrim's NIF version, 20.2.0.7. Nothing else in the
+// supportedVersion is the NIF version, 20.2.0.7. Nothing else in the
 // pipeline has ever been fed anything older.
 const supportedVersion = 0x14020007
 

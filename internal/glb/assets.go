@@ -17,7 +17,7 @@ import (
 
 // Assets resolves the game's texture paths to PNG files on disk.
 //
-// Skyrim textures live in three places at once — loose files under a mod's
+// Game textures live in three places at once — loose files under a mod's
 // directory, loose files under the game's Data, and inside BSA archives — and
 // the paths inside a NIF are Windows-cased. Everything to do with finding them
 // and converting DDS to PNG lives here; nothing downstream touches the disk.
@@ -46,7 +46,7 @@ func (a *Assets) Archive(data, name string) (*bsa.Archive, error) {
 	return archive, nil
 }
 
-// ciFind walks a relative path case-insensitively. Skyrim assets reference each
+// ciFind walks a relative path case-insensitively. Game assets reference each
 // other with Windows casing, which does not survive on a case-sensitive
 // filesystem.
 func ciFind(root, relative string) string {

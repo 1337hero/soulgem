@@ -25,7 +25,7 @@ type Info struct {
 
 // LoadHKX converts an HKX to XML with hkxc and extracts the animation from it.
 //
-// Skyrim's clips name their tracks only in the skeleton, not in each animation,
+// The clips name their tracks only in the skeleton, not in each animation,
 // so a clip with blank track names is matched positionally against the shared
 // track order recorded under anims/.
 func LoadHKX(path, root string) (*Info, error) {

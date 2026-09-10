@@ -1,4 +1,4 @@
-// Package tri parses Skyrim FaceGen FRTRI003 morph files.
+// Package tri parses game FaceGen FRTRI003 morph files.
 package tri
 
 import (

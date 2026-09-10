@@ -14,11 +14,11 @@ import (
 	"soulgem/internal/bsa"
 )
 
-const gameData = "/home/mikekey/.local/share/Steam/steamapps/common/Skyrim Special Edition/Data"
+const gameData = "/home/mikekey/.local/share/Steam/steamapps/common/SkyrimSE/Data"
 
 var archives = []string{
 	"UHDAP - en0.bsa", "UHDAP - en1.bsa", "UHDAP - en2.bsa", "UHDAP - en3.bsa",
-	"UHDAP - en4.bsa", "Skyrim - Voices_en0.bsa",
+	"UHDAP - en4.bsa", "SkyrimSE - Voices_en0.bsa",
 }
 
 type line struct {

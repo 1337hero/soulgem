@@ -8,13 +8,13 @@ import (
 	"soulgem/internal/mathutil"
 )
 
-const Data = "/home/mikekey/.local/share/Steam/steamapps/common/Skyrim Special Edition/Data"
+const Data = "/home/mikekey/.local/share/Steam/steamapps/common/SkyrimSE/Data"
 
 var (
 	TextureBSAs = []string{
-		"Skyrim - Textures0.bsa", "Skyrim - Textures1.bsa", "Skyrim - Textures2.bsa",
-		"Skyrim - Textures3.bsa", "Skyrim - Textures4.bsa", "Skyrim - Textures5.bsa",
-		"Skyrim - Textures6.bsa", "Skyrim - Textures7.bsa", "Skyrim - Textures8.bsa",
+		"SkyrimSE - Textures0.bsa", "SkyrimSE - Textures1.bsa", "SkyrimSE - Textures2.bsa",
+		"SkyrimSE - Textures3.bsa", "SkyrimSE - Textures4.bsa", "SkyrimSE - Textures5.bsa",
+		"SkyrimSE - Textures6.bsa", "SkyrimSE - Textures7.bsa", "SkyrimSE - Textures8.bsa",
 	}
 	MorphNames = []string{
 		"Aah", "BigAah", "BMP", "ChJSh", "DST", "Eee", "Eh", "FV", "I", "K", "N",
@@ -26,7 +26,7 @@ var (
 )
 
 const (
-	HeadTriBSA = "Skyrim - Meshes0.bsa"
+	HeadTriBSA = "SkyrimSE - Meshes0.bsa"
 	HeadTri    = "meshes/actors/character/character assets/femalehead.tri"
 )
 

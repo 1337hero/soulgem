@@ -63,7 +63,7 @@ scratch file and fails if any hash moved vs `characters/<name>/<name>.sha256`;
 `--freeze <name>` blesses a deliberate look change. Run --verify after ANY
 GLB builder/NIF parser edit — it's the proof Lydia didn't move.
 
-## Swapping outfits (Skyrim/CBBE track)
+## Swapping outfits (CBBE track)
 
 Recipe proven with Girl's Travel Outfit (`internal/character/lydia.go`) and
 Twilight Princess Armor Mashup (`internal/character/serana.go`):
@@ -90,7 +90,7 @@ Twilight Princess Armor Mashup (`internal/character/serana.go`):
    `BodyMatch` string.
 5. **Edit the character config** (`internal/character/<name>.go`): swap mesh entries
    (absolute paths into staging are fine), add the mod dir to `data_roots`.
-6. **Build + verify**: `go run ./cmd/build-glb <name>` (needs the Skyrim
+6. **Build + verify**: `go run ./cmd/build-glb <name>` (needs the game
    install), then view — `bun start` and screenshot front/back/face, or
    serve statically. Check: neck/wrist seams, skin tone match, no floating
    old body parts. Then `go run ./cmd/build-glb --verify` for the others.
@@ -99,17 +99,17 @@ New character entirely: copy `internal/character/serana.go`, add its loader to
 `internal/character/config.go` — facegen formid + skin
 remaps + meshes + a `souls/<name>/` dir (see Souls). Extract the voice with
 `go run ./cmd/voice-ref <voicetype> souls/<name>/voice_ref.wav` (any voice type in the
-voice BSAs; UHDAP preferred automatically). Non-Skyrim bodies (VRM etc.)
+voice BSAs; UHDAP preferred automatically). Non-game bodies (VRM etc.)
 are a planned separate track (plan §8, SHAPE_VISEME must move to soul
 config first).
 
 ## Adding animations
 
-Any Skyrim HKX works (vanilla BSA included — empty track names fall back to
+Any HKX works (vanilla BSA included — empty track names fall back to
 `anims/skeleton_track_order.json`):
 
 ```sh
-go run ./cmd/bsa extract "<Data>/Skyrim - Animations.bsa" \
+go run ./cmd/bsa extract "<Data>/<Game> - Animations.bsa" \
   "meshes/actors/character/animations/<name>.hkx" /tmp/x.hkx
 go run ./cmd/hkx-anim /tmp/x.hkx # decodes to anims/<name>.json + reindexes
 ```

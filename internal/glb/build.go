@@ -17,9 +17,9 @@ import (
 	"soulgem/internal/gltf"
 )
 
-// skyrimToGLTF converts Skyrim's units and axes: centimetre-ish units down to
+// gameToGLTF converts the game's units and axes: centimetre-ish units down to
 // metres, Z-up left-handed to Y-up right-handed.
-const skyrimToGLTF = 0.01428
+const gameToGLTF = 0.01428
 
 // Report describes what a build produced, for the command to print.
 type Report struct {
@@ -72,7 +72,7 @@ func write(scene *Scene) ([]byte, Report, error) {
 	rootNode := writer.AddNode(gltf.Node{
 		Name:     scene.Name,
 		Children: scene.Roots,
-		Matrix:   axisMatrix(skyrimToGLTF),
+		Matrix:   axisMatrix(gameToGLTF),
 	})
 
 	inverseBind := make([][16]float64, len(scene.Joints))

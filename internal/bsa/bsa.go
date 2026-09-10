@@ -1,4 +1,4 @@
-// Package bsa reads Skyrim Special Edition BSA v105 archives.
+// Package bsa reads game BSA v105 archives.
 package bsa
 
 import (
