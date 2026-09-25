@@ -12,9 +12,8 @@ import (
 	"strings"
 
 	"soulgem/internal/bsa"
+	"soulgem/internal/character"
 )
-
-const gameData = "/home/mikekey/.local/share/Steam/steamapps/common/SkyrimSE/Data"
 
 var archives = []string{
 	"UHDAP - en0.bsa", "UHDAP - en1.bsa", "UHDAP - en2.bsa", "UHDAP - en3.bsa",
@@ -45,7 +44,7 @@ func main() {
 func voiceLines(voice string) ([]line, error) {
 	var lines []line
 	for _, name := range archives {
-		path := filepath.Join(gameData, name)
+		path := filepath.Join(character.Data, name)
 		if _, err := os.Stat(path); err != nil {
 			if os.IsNotExist(err) {
 				continue
@@ -76,7 +75,7 @@ func voiceLines(voice string) ([]line, error) {
 		break
 	}
 	if len(lines) == 0 {
-		return nil, fmt.Errorf("no lines for voice type %q in %s", voice, gameData)
+		return nil, fmt.Errorf("no lines for voice type %q in %s", voice, character.Data)
 	}
 	return lines, nil
 }

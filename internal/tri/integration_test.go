@@ -7,12 +7,12 @@ import (
 	"testing"
 
 	"soulgem/internal/bsa"
+	"soulgem/internal/character"
 	"soulgem/internal/tri"
 )
 
 func TestVanillaFemaleHead(t *testing.T) {
-	const gameData = "/home/mikekey/.local/share/Steam/steamapps/common/SkyrimSE/Data"
-	path := filepath.Join(gameData, "SkyrimSE - Meshes0.bsa")
+	path := filepath.Join(character.Data, "SkyrimSE - Meshes0.bsa")
 	archive, err := bsa.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		t.Skip("Game assets are not installed")

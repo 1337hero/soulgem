@@ -8,7 +8,10 @@ import (
 	"soulgem/internal/mathutil"
 )
 
-const Data = "/home/mikekey/.local/share/Steam/steamapps/common/SkyrimSE/Data"
+// Data is the Skyrim SE install used by the offline asset pipeline. It lives
+// on the removable CARTRIDGE Steam library, so it is often absent: commands
+// that need it fail with a clear path, and tests skip.
+const Data = "/run/media/mikekey/CARTRIDGE/SteamLibrary/steamapps/common/Skyrim Special Edition/Data"
 
 var (
 	TextureBSAs = []string{
