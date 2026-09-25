@@ -7,6 +7,7 @@ import { MOOD_KEYS, VISEME_KEYS, parseServerMsg, sendClient } from './server/pro
 import { createPlayback } from './client/playback.ts'
 import { replyText } from './client/captions.ts'
 import { element } from './client/dom.ts'
+import { createCapture } from './client/capture.ts'
 import { bindClip, boneKey, parseClip, samplePose } from './client/anim.ts'
 
 const canvas = element('view', 'canvas')
@@ -818,6 +819,16 @@ window.addEventListener('keydown', e => {
   if (typing(e)) return
   if (e.key === 't' && !e.repeat) startRec()
   else if (e.key === 'i' && !e.repeat) { e.preventDefault(); setTextMode(true) }
+  else if (e.key === 'r' && !e.repeat) capture.toggle()
+})
+
+// ---- demo capture: R toggles a recording of this tab + her voice + mic ----
+// Indicator lives in the tab title: anything drawn in the page ends up in the take.
+const baseTitle = document.title
+const capture = createCapture({
+  onStart() { document.title = `● REC — ${baseTitle}` },
+  onStop() { document.title = baseTitle },
+  onError(error) { captionEl.textContent = `(capture failed: ${String(error)})` },
 })
 window.addEventListener('keyup', e => { if (!typing(e) && e.key === 't') stopRec() })
 
