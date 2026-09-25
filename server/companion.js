@@ -403,6 +403,31 @@ fences, no IDs, no meta commentary — only the briefing.`,
   const MIME = { html: 'text/html', js: 'text/javascript', json: 'application/json',
                  glb: 'model/gltf-binary', png: 'image/png', css: 'text/css',
                  ogg: 'audio/ogg' }
+  // GLB/PNG/OGG are already compressed; gzip only buys anything on these
+  const COMPRESSIBLE = new Set(['html', 'js', 'json', 'css', 'anim'])
+  /** @type {Map<string, {etag: string, body: Uint8Array<ArrayBuffer>}>} */
+  const gzipCache = new Map()
+
+  // Every static file revalidates (no-cache) against a size+mtime ETag: a
+  // reload costs one 304 per file, yet a rebuilt GLB or bundle is never stale.
+  // /body.glb changes file on soul switch, which the ETag also catches.
+  /** @param {Request} req
+   * @param {string} path
+   * @param {import('bun').BunFile} file */
+  async function serveStatic(req, path, file) {
+    const ext = path.split('.').pop() ?? ''
+    const etag = `W/"${file.size.toString(36)}-${file.lastModified.toString(36)}"`
+    /** @type {Record<string, string>} */
+    const headers = { 'Content-Type': MIME[ext] ?? 'application/octet-stream',
+                      'Cache-Control': 'no-cache', ETag: etag }
+    if (req.headers.get('If-None-Match') === etag) return new Response(null, { status: 304, headers })
+    if (!COMPRESSIBLE.has(ext)) return new Response(file, { headers })
+    headers.Vary = 'Accept-Encoding'
+    if (!/\bgzip\b/.test(req.headers.get('Accept-Encoding') ?? '')) return new Response(file, { headers })
+    let hit = gzipCache.get(path)
+    if (hit?.etag !== etag) gzipCache.set(path, hit = { etag, body: Bun.gzipSync(await file.bytes()) })
+    return new Response(hit.body, { headers: { ...headers, 'Content-Encoding': 'gzip' } })
+  }
 
   const server = Bun.serve({
     port: PORT,
@@ -417,8 +442,7 @@ fences, no IDs, no meta commentary — only the briefing.`,
       let path = url.pathname === '/' ? '/index.html' : url.pathname
       const file = path === '/body.glb' ? Bun.file(soul.glbPath) : Bun.file(join(ROOT, path.slice(1)))
       if (!(await file.exists())) return new Response('not found', { status: 404 })
-      const ext = path.split('.').pop() ?? ''
-      return new Response(file, { headers: { 'Content-Type': MIME[ext] ?? 'application/octet-stream' } })
+      return serveStatic(req, path, file)
     },
     websocket: {
       data: /** @type {import('./soul.ts').ConnectionData} */ ({ history: [] }),

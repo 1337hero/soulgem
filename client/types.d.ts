@@ -1,12 +1,8 @@
-export type Clip = {
-  duration: number; fps: number; frames: number
-  bones: Record<string, { pos: [number, number, number][]; rot: [number, number, number, number][] }>
-}
-export type ClipState = { clip: Clip; t: number; name: string }
+export {}
 
 declare global {
   interface Window {
-    LYDIA_ANIMS?: Record<string, Clip>
+    LYDIA_ANIMS?: Record<string, string>  // standalone page: clip name -> base64 .anim
     THREE: typeof import('three')
     viewer: typeof import('../main.js').viewer
   }

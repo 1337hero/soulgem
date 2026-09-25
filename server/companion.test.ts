@@ -163,3 +163,31 @@ test('a later synthesis failure is handled immediately and reported after pendin
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('static files revalidate by ETag and text assets arrive gzipped', async () => {
+  const root = souls()
+  mkdirSync(join(root, 'anims'))
+  writeFileSync(join(root, 'anims/index.json'), JSON.stringify(Array(200).fill('mt_idle')))
+  const llm = Bun.serve({ port: 0, fetch: () => Response.json({ choices: [] }) })
+  const app = await createCompanion({ root, port: 0, bootSoul: 'old', llmUrl: llm.url.href, embed: async () => null })
+  const url = `http://127.0.0.1:${app.server.port}/anims/index.json`
+  try {
+    const first = await fetch(url, { headers: { 'Accept-Encoding': 'gzip' }, decompress: false })
+    expect(first.headers.get('Content-Encoding')).toBe('gzip')
+    expect(first.headers.get('Cache-Control')).toBe('no-cache')
+    expect(JSON.parse(new TextDecoder().decode(Bun.gunzipSync(await first.bytes())))).toHaveLength(200)
+
+    const etag = first.headers.get('ETag') ?? ''
+    const again = await fetch(url, { headers: { 'If-None-Match': etag } })
+    expect(again.status).toBe(304)
+
+    writeFileSync(join(root, 'anims/index.json'), '[]')
+    const changed = await fetch(url, { headers: { 'If-None-Match': etag } })
+    expect(changed.status).toBe(200)
+    expect(await changed.json()).toEqual([])
+  } finally {
+    await app.stop()
+    await llm.stop(true)
+    rmSync(root, { recursive: true, force: true })
+  }
+})

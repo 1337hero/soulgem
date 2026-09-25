@@ -63,19 +63,19 @@ func run() error {
 	return nil
 }
 
-// readAnimations returns the inlined clips as JSON object entries, skipping any
-// that have not been decoded yet.
+// readAnimations returns the inlined clips as `"name":"<base64 .anim>"` object
+// entries, skipping any that have not been decoded yet.
 func readAnimations(root string) ([]string, error) {
 	var out []string
 	for _, name := range inlined {
-		data, err := os.ReadFile(filepath.Join(root, "anims", name+".json"))
+		data, err := os.ReadFile(filepath.Join(root, "anims", name+".anim"))
 		if os.IsNotExist(err) {
 			continue
 		}
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, fmt.Sprintf("%q:%s", name, data))
+		out = append(out, fmt.Sprintf("%q:%q", name, base64.StdEncoding.EncodeToString(data)))
 	}
 	return out, nil
 }

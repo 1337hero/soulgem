@@ -111,7 +111,7 @@ Any HKX works (vanilla BSA included — empty track names fall back to
 ```sh
 go run ./cmd/bsa extract "<Data>/<Game> - Animations.bsa" \
   "meshes/actors/character/animations/<name>.hkx" /tmp/x.hkx
-go run ./cmd/hkx-anim /tmp/x.hkx # decodes to anims/<name>.json + reindexes
+go run ./cmd/hkx-anim /tmp/x.hkx # decodes to anims/<name>.anim + reindexes
 ```
 
 Naming controls behavior (client-side, by prefix):
@@ -126,8 +126,8 @@ Naming controls behavior (client-side, by prefix):
 Rename by naming the extracted .hkx before decoding. `--reindex` rebuilds
 the index alone. Keep clips ≥3s for idles; shorter one-shots are fine.
 `--loop` trims each clip to one seamless loop (best pose match to frame 0
-within 6–20s) — use it for full-length routines that would otherwise bake
-tens of MB of JSON the browser loads up front (the Dance For Me dances run
+within 6–20s) — use it for full-length routines that would otherwise weigh
+megabytes each (the Dance For Me dances run
 the length of their song). hkxc renders blank track names as U+2400; the
 parser strips it so those clips take the vanilla positional track-order
 fallback (a regression there collapses every track into one bone).
@@ -142,7 +142,7 @@ Me mod (`Dance for me - Dance for you SE(ESPfe)` in Vortex staging + the
 `Dance4Me` music in game Data):
 
 ```sh
-# animations: 4 spline HKX -> anims/dance_1..4.json (looped, ~1-2MB each)
+# animations: 4 spline HKX -> anims/dance_1..4.anim (looped, ~300-650KB each)
 for n in 1 2 3 4; do cp "<staging>/.../animations/Dance19100$n/Dance19100${n}_S1.hkx" /tmp/dance_$n.hkx; done
 go run ./cmd/hkx-anim --loop /tmp/dance_{1,2,3,4}.hkx
 # music: xwm -> ogg (ffmpeg's wmapro, same path voice-ref uses)

@@ -2,8 +2,11 @@ package anim
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -306,10 +309,40 @@ func TestClipSamplesAndSerialises(t *testing.T) {
 	if bone.Scale != nil {
 		t.Errorf("Scale = %v, want it omitted", bone.Scale)
 	}
-	want := `{"duration":1.5,"fps":30.000030000029998,"frames":2,` +
-		`"bones":{"NPC Root [Root]":{"pos":[[0.0,0.0,0.0],[10.0,0.0,0.0]],` +
-		`"rot":[[0.0,0.0,0.0,1.0],[0.0,0.0,0.0,1.0]]}}}`
-	if got := string(clip.MarshalPythonJSON()); got != want {
-		t.Errorf("MarshalPythonJSON()\n got %s\nwant %s", got, want)
+	data, err := clip.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
 	}
+	header, payload := splitBinary(t, data)
+	want := BinaryHeader{Duration: 1.5, FPS: clip.FPS, Frames: 2, Tracks: []BinaryTrack{
+		// moving position keeps both frames; the identity rotation collapses to one
+		{Bone: "NPC Root [Root]", Pos: 0, PosStride: 3, Rot: 6, RotStride: 0},
+	}}
+	if !reflect.DeepEqual(header, want) {
+		t.Errorf("header = %+v, want %+v", header, want)
+	}
+	if wantPayload := []float32{0, 0, 0, 10, 0, 0, 0, 0, 0, 1}; !slices.Equal(payload, wantPayload) {
+		t.Errorf("payload = %v, want %v", payload, wantPayload)
+	}
+}
+
+// splitBinary decodes an .anim file the way the viewer does.
+func splitBinary(t *testing.T, data []byte) (BinaryHeader, []float32) {
+	t.Helper()
+	if string(data[:4]) != BinaryMagic {
+		t.Fatalf("magic = %q", data[:4])
+	}
+	size := int(binary.LittleEndian.Uint32(data[4:8]))
+	if (8+size)%4 != 0 {
+		t.Fatalf("payload starts at %d, not 4-byte aligned", 8+size)
+	}
+	var header BinaryHeader
+	if err := json.Unmarshal(data[8:8+size], &header); err != nil {
+		t.Fatal(err)
+	}
+	var payload []float32
+	for offset := 8 + size; offset < len(data); offset += 4 {
+		payload = append(payload, math.Float32frombits(binary.LittleEndian.Uint32(data[offset:])))
+	}
+	return header, payload
 }

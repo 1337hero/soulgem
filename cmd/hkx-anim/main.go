@@ -32,7 +32,7 @@ func run(paths []string) error {
 	}
 	// --loop trims each clip to one seamless loop — for full-song routines
 	// (the Dance For Me dances run the length of their track) that would
-	// otherwise bake tens of MB of JSON the browser loads up front.
+	// otherwise bake tens of MB the browser loads up front.
 	loop := false
 	var clips []string
 	for _, path := range paths {
@@ -66,8 +66,12 @@ func decode(path, root, outDir string, loop bool) error {
 	if loop {
 		loopTrim(clip, 6, 20)
 	}
-	dst := filepath.Join(outDir, name+".json")
-	if err := os.WriteFile(dst, clip.MarshalPythonJSON(), 0o644); err != nil {
+	data, err := clip.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	dst := filepath.Join(outDir, name+".anim")
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
 		return err
 	}
 	info, err := os.Stat(dst)

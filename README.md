@@ -102,8 +102,8 @@ at the paths in each character config; missing assets prevent verification.
 2. `internal/bsa`, `internal/tri` / their commands — BSA v105 extractor (lz4) and FaceGen TRI morph
    parser (16 visemes, blinks, brows, 7 moods → glTF morph targets).
 3. `cmd/hkx-anim` — decodes SSE Havok spline-compressed animations to
-   `anims/*.json` and regenerates
-   `anims/index.json`; `--reindex` rebuilds the index alone. Any
+   `anims/*.anim` (Float32 binary, constant tracks stored once — format in
+   `internal/anim/binary.go`) and regenerates `anims/index.json`; `--reindex` rebuilds the index alone. Any
    animation is importable.
 4. `cmd/build-glb` — assembles a character: mod/facegen NIFs + real facegen
    head (resolved by ORIGIN master), face tint baked diffuse×tint×2, DDS→PNG

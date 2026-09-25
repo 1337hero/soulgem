@@ -7,6 +7,7 @@ import { MOOD_KEYS, VISEME_KEYS, parseServerMsg, sendClient } from './server/pro
 import { createPlayback } from './client/playback.ts'
 import { replyText } from './client/captions.ts'
 import { element } from './client/dom.ts'
+import { bindClip, boneKey, parseClip, samplePose } from './client/anim.ts'
 
 const canvas = element('view', 'canvas')
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true })
@@ -164,8 +165,9 @@ function loadBody(url) {
     if (o instanceof THREE.Mesh && o.morphTargetDictionary && Object.keys(o.morphTargetDictionary).length) head = o
     if (o instanceof THREE.Bone && o.name === 'NPC_Head_Head') headBone = o
     if (o instanceof THREE.Bone && o.name === 'NPC_Spine2_Spn2') spineBone = o
-    if (o instanceof THREE.Bone) boneByKey[norm(o.name)] = o
+    if (o instanceof THREE.Bone) boneByKey[boneKey(o.name)] = o
   })
+  bound = new WeakMap()  // new skeleton: rebind every clip on next sample
   // drift guard: a morph name the GLB lacks silently no-ops forever
   const missing = [...VISEME_KEYS, ...MOOD_KEYS].filter(k => head?.morphTargetDictionary?.[k] === undefined)
   if (missing.length) console.warn('GLB is missing morph targets:', missing.join(', '))
@@ -189,43 +191,62 @@ function setMorph(name, v) {
 
 // ---- idle animation playback (decoded HKX clips) ----
 /** @type {Record<string, THREE.Bone>} */
-const boneByKey = {}          // normalized name -> Bone
-/** @param {string} s */
-const norm = s => s.replace(/[^A-Za-z0-9]/g, '')
-/** @type {Record<string, import('./client/types').Clip>} */
-const clips = {}              // name -> clip json
+const boneByKey = {}          // boneKey(name) -> Bone
+/** @type {WeakMap<import('./client/anim.ts').Clip, import('./client/anim.ts').BoundTrack[]>} */
+let bound = new WeakMap()     // clip -> tracks resolved against the current body
+/** @type {Record<string, import('./client/anim.ts').Clip>} */
+const clips = {}              // name -> clip
 /** @type {string[]} */
-let clipNames = []
-/** @type {import('./client/types').ClipState | null} */
+const clipNames = []          // idle rotation pool
+/** @type {import('./client/anim.ts').ClipState | null} */
 let cur = null                // { clip, t }
-/** @type {import('./client/types').ClipState | null} */
+/** @type {import('./client/anim.ts').ClipState | null} */
 let prev = null               // fading-out clip during crossfade
 let fade = 1                  // 0..1 crossfade progress
 const FADE_DUR = 0.6
 let switchAt = Infinity
+const timer = new THREE.Timer()
 
-async function loadAnims() {
-  if (window.LYDIA_ANIMS) {
-    Object.assign(clips, window.LYDIA_ANIMS)
-  } else {
-    try {
-      /** @type {string[]} */
-      const names = await (await fetch('anims/index.json')).json()
-      await Promise.all(names.map(async n => {
-        clips[n] = await (await fetch(`anims/${n}.json`)).json()
-      }))
-    } catch { return }
-  }
-  // idle pool: everything except one-shot gestures, talking body language, and
-  // dance clips (dances only play on request, never in the idle rotation)
-  clipNames = Object.keys(clips).filter(n =>
-    !n.startsWith('gesture_') && !n.startsWith('talk_') && !n.startsWith('dance_'))
-  if (clipNames.length) {
-    cur = { clip: clips[clipNames[0]], t: 0, name: clipNames[0] }
+// idle pool: everything except one-shot gestures, talking body language, and
+// dance clips (dances only play on request, never in the idle rotation)
+/** @param {string} name */
+const isIdleClip = name => !/^(gesture|talk|dance)_/.test(name)
+
+/** @param {string} name
+ * @param {import('./client/anim.ts').Clip} clip */
+function addClip(name, clip) {
+  clips[name] = clip
+  if (!isIdleClip(name)) return
+  clipNames.push(name)
+  if (!cur) {  // the first idle to arrive starts her moving
+    cur = { clip, t: 0, name }
     scheduleSwitch()
   }
 }
-loadAnims()
+
+/** @param {string[]} names */
+function fetchClips(names) {
+  return Promise.all(names.map(async name => {
+    try {
+      const res = await fetch(`anims/${name}.anim`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      addClip(name, parseClip(await res.arrayBuffer()))
+    } catch (e) { console.warn(`animation ${name} failed to load:`, e) }
+  }))
+}
+
+async function loadAnims() {
+  if (window.LYDIA_ANIMS) {
+    for (const [name, b64] of Object.entries(window.LYDIA_ANIMS)) addClip(name, parseClip(b64ToArrayBuffer(b64)))
+    return
+  }
+  /** @type {string[]} */
+  const names = await (await fetch('anims/index.json')).json()
+  // idles first so her first pose isn't queued behind dances; the rest stream in
+  await fetchClips(names.filter(isIdleClip))
+  await fetchClips(names.filter(n => !isIdleClip(n)))
+}
+loadAnims().catch(e => console.warn('animations failed to load:', e))
 
 function scheduleSwitch() {
   switchAt = timer.getElapsed() + 15 + Math.random() * 15
@@ -299,9 +320,15 @@ function stopDance(fade = true) {
 }
 
 const _qa = new THREE.Quaternion()
-const _qb = new THREE.Quaternion()
 
-/** @param {import('./client/types').ClipState} state
+/** @param {import('./client/anim.ts').Clip} clip */
+function tracksFor(clip) {
+  let tracks = bound.get(clip)
+  if (!tracks) bound.set(clip, tracks = bindClip(clip, boneByKey))
+  return tracks
+}
+
+/** @param {import('./client/anim.ts').ClipState} state
  * @param {number} dt
  * @param {number} weight */
 function sampleInto(state, dt, weight) {
@@ -310,23 +337,7 @@ function sampleInto(state, dt, weight) {
   const f = state.t * c.fps
   const f0 = Math.floor(f) % c.frames
   const f1 = (f0 + 1) % c.frames
-  const a = f - Math.floor(f)
-  for (const [name, tr] of Object.entries(c.bones)) {
-    const bone = boneByKey[norm(name)]
-    if (!bone) continue
-    const p0 = tr.pos[f0], p1 = tr.pos[f1]
-    const r0 = tr.rot[f0], r1 = tr.rot[f1]
-    _qa.set(r0[0], r0[1], r0[2], r0[3])
-    _qb.set(r1[0], r1[1], r1[2], r1[3])
-    _qa.slerp(_qb, a)
-    if (weight >= 1) {
-      bone.position.set(p0[0] + (p1[0]-p0[0])*a, p0[1] + (p1[1]-p0[1])*a, p0[2] + (p1[2]-p0[2])*a)
-      bone.quaternion.copy(_qa)
-    } else {
-      bone.position.lerp(new THREE.Vector3(p0[0] + (p1[0]-p0[0])*a, p0[1] + (p1[1]-p0[1])*a, p0[2] + (p1[2]-p0[2])*a), weight)
-      bone.quaternion.slerp(_qa, weight)
-    }
-  }
+  samplePose(tracksFor(c), c.data, f0, f1, f - Math.floor(f), weight)
 }
 
 /** @param {number} dt
@@ -379,7 +390,6 @@ spinBtn.addEventListener('click', e => {
 const look = { yaw: 0, pitch: 0 }
 // live-tunable via console: viewer.gaze.pitchBias = -0.08 (negative = aim higher)
 const gaze = { yawMax: 0.7, pitchMax: 0.35, pitchBias: -0.06 }
-const timer = new THREE.Timer()
 const _pq = new THREE.Quaternion()
 const _target = new THREE.Quaternion()
 const _e = new THREE.Euler()

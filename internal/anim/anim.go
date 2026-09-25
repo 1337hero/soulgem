@@ -2,7 +2,7 @@
 //
 // The pipeline is one stage per file: hkx.go shells out to hkxc for the binary
 // container, xml.go extracts the animation header and spline block from its
-// XML, spline.go decodes the block into sampleable tracks, and json.go writes
+// XML, spline.go decodes the block into sampleable tracks, and binary.go writes
 // the sampled clip.
 package anim
 
@@ -77,8 +77,9 @@ func (info *Info) Clip(path string) (*Clip, error) {
 			pos := current.pos.sample(local)
 			rot := current.rot.sample(local)
 			scale := current.scale.sample(local)
-			// Rounding here is what keeps the emitted JSON small; the extra
-			// digits are below the precision the spline encoding carries.
+			// Rounding keeps near-constant tracks exactly equal so the binary
+			// writer can collapse them; the dropped digits are below the
+			// precision the spline encoding carries.
 			for i := range pos {
 				pos[i] = mathutil.Round(pos[i], 4)
 				scale[i] = mathutil.Round(scale[i], 4)
@@ -108,8 +109,8 @@ func Reindex(outDir string) ([]string, error) {
 	var names []string
 	for _, entry := range entries {
 		name := entry.Name()
-		if strings.HasSuffix(name, ".json") && name != "index.json" && name != "skeleton_track_order.json" {
-			names = append(names, strings.TrimSuffix(name, ".json"))
+		if clip, ok := strings.CutSuffix(name, ".anim"); ok {
+			names = append(names, clip)
 		}
 	}
 	slices.Sort(names)
