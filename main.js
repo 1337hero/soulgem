@@ -162,6 +162,7 @@ function loadBody(url) {
     }
   })
   scene.add(model)
+  stopWander()   // a new body starts at home, facing the viewer
   model.traverse(o => {
     if (o instanceof THREE.Mesh && o.morphTargetDictionary && Object.keys(o.morphTargetDictionary).length) head = o
     if (o instanceof THREE.Bone && o.name === 'NPC_Head_Head') headBone = o
@@ -211,7 +212,8 @@ const timer = new THREE.Timer()
 // idle pool: everything except one-shot gestures, talking body language, and
 // dance clips (dances only play on request, never in the idle rotation)
 /** @param {string} name */
-const isIdleClip = name => !/^(gesture|talk|dance)_/.test(name)
+const isIdleClip = name => !/^(gesture|talk|dance|walk)_/.test(name)
+const randomIdle = () => clipNames[Math.floor(Math.random() * clipNames.length)]
 
 /** @param {string} name
  * @param {import('./client/anim.ts').Clip} clip */
@@ -268,7 +270,8 @@ let gestureReturn = null
 /** @param {string} name */
 function playGesture(name) {
   if (!clips[name] || gestureReturn) return
-  gestureReturn = cur?.name ?? clipNames[0]
+  // a gesture fired mid-walk hands the body back to an idle, not the walk cycle
+  gestureReturn = cur && isIdleClip(cur.name) ? cur.name : randomIdle()
   playIdle(name)
 }
 
@@ -315,7 +318,7 @@ function stopDance(fade = true) {
   }
   // hand the body back to a fresh idle
   if (wasDancing && clipNames.length) {
-    playIdle(clipNames[Math.floor(Math.random() * clipNames.length)])
+    playIdle(randomIdle())
     scheduleSwitch()
   }
 }
@@ -350,7 +353,7 @@ function updateIdle(dt, t) {
     gestureReturn = null
     playIdle(back)
   }
-  if (t >= switchAt && clipNames.length > 1 && !gestureReturn && !dancing) {
+  if (t >= switchAt && clipNames.length > 1 && !gestureReturn && !dancing && !wanderTarget) {
     const others = clipNames.filter(n => clips[n] !== cur?.clip)
     playIdle(others[Math.floor(Math.random() * others.length)])
     scheduleSwitch()
@@ -364,6 +367,90 @@ function updateIdle(dt, t) {
     sampleInto(cur, dt, 1)
   }
   return true
+}
+
+// ---- wander: between idles she walks to a nearby spot, then turns back ----
+// walk_forward is a walk-in-place cycle (Skyrim keeps locomotion in the
+// behavior graph, not the clip), so the root is driven here: the body pivots
+// toward the target, advances at the clip's stride speed, and once it arrives
+// turns back to face the viewer.
+const WALK = 'walk_forward'
+// live-tunable via console: viewer.wander.speed = 1.1 (m/s; match the stride so feet don't slide)
+const wander = { speed: 1.0, radius: 1.2, turnRate: 2.5, minWait: 30, maxWait: 60 }
+const ARRIVE = 0.1           // m; close enough
+const PIVOT = 0.35           // rad; turn in place until the target is this far off the nose
+/** @type {THREE.Vector3 | null} */
+let wanderTarget = null
+let heading = 0              // where the body wants to face, radians about Y
+let wanderAt = Infinity
+const _step = new THREE.Vector3()
+const _follow = new THREE.Vector3()
+
+function scheduleWander() {
+  wanderAt = timer.getElapsed() + wander.minWait + Math.random() * (wander.maxWait - wander.minWait)
+}
+
+// anything that already owns the body pre-empts a walk
+const bodyBusy = () => speech.speaking || !!gestureReturn || dancing || spin
+
+/** @param {THREE.Vector3} from */
+function pickTarget(from) {
+  const target = new THREE.Vector3()
+  for (let i = 0; i < 8; i++) {   // somewhere in the roam disc, but a real walk away
+    const r = Math.sqrt(Math.random()) * wander.radius, a = Math.random() * Math.PI * 2
+    target.set(Math.sin(a) * r, 0, Math.cos(a) * r)
+    if (target.distanceTo(from) >= 0.4) break
+  }
+  return target
+}
+
+function startWander() {
+  if (!clips[WALK] || !model || bodyBusy()) return
+  wanderTarget = pickTarget(model.position)
+  playIdle(WALK)
+}
+
+function stopWander() {
+  wanderTarget = null
+  if (model) heading = Math.atan2(camera.position.x - model.position.x, camera.position.z - model.position.z)
+  if (cur?.name === WALK) playIdle(randomIdle())
+  scheduleWander()
+}
+
+/** @param {number} dt
+ * @param {number} t */
+function updateWander(dt, t) {
+  if (!model || spin) return
+  if (!wanderTarget) {
+    if (t >= wanderAt) startWander()
+  } else if (bodyBusy()) {
+    stopWander()               // a turn, gesture or dance interrupts the walk
+  } else {
+    _step.subVectors(wanderTarget, model.position)
+    const dist = _step.length()
+    if (dist < ARRIVE) { stopWander(); return }
+    heading = Math.atan2(_step.x, _step.z)
+  }
+  // slew toward the heading; walk along the nose only once it's roughly lined up
+  const off = Math.atan2(Math.sin(heading - model.rotation.y), Math.cos(heading - model.rotation.y))
+  model.rotation.y += THREE.MathUtils.clamp(off, -wander.turnRate * dt, wander.turnRate * dt)
+  if (wanderTarget && Math.abs(off) < PIVOT) {
+    const d = Math.min(wander.speed * dt, _step.length())
+    model.position.x += Math.sin(model.rotation.y) * d
+    model.position.z += Math.cos(model.rotation.y) * d
+  }
+}
+
+// keep her framed and grounded as she roams: orbit target and contact shadow track the body
+/** @param {number} dt */
+function followBody(dt) {
+  if (!model) return
+  _follow.set(model.position.x, controls.target.y, model.position.z)
+  _follow.sub(controls.target).multiplyScalar(1 - Math.exp(-dt * 4))   // this frame's pan
+  controls.target.add(_follow)
+  camera.position.add(_follow)   // pan, don't re-aim: OrbitControls would otherwise let her walk up into the lens
+  ground.position.x = model.position.x
+  ground.position.z = model.position.z
 }
 
 // ---- procedural life ----
@@ -397,9 +484,9 @@ const _e = new THREE.Euler()
 
 window.THREE = THREE  // console/scene experiments
 export const viewer = { camera, controls, scene, renderer, setMorph, playIdle, playGesture, setScene, gaze, applyLighting,
-  get head() { return head }, get clips() { return clips },
+  get head() { return head }, get clips() { return clips }, get clip() { return cur?.name },
   /** @param {string} text */
-  say: text => sendTurn({ type: 'text', text }), startDance, stopDance }
+  say: text => sendTurn({ type: 'text', text }), startDance, stopDance, wander, walk: startWander }
 window.viewer = viewer
 
 renderer.setAnimationLoop(() => {
@@ -414,6 +501,7 @@ renderer.setAnimationLoop(() => {
     updateMouth()
     updateDanceVolume(dt)
     const hasIdle = updateIdle(dt, t)
+    updateWander(dt, t)
     // breathing fallback when no idle clip drives the spine
     if (!hasIdle && spineBone) {
       _e.set(Math.sin(t * 1.5) * 0.010, 0, 0)
@@ -423,6 +511,7 @@ renderer.setAnimationLoop(() => {
     updateBlink(dt, t)
   }
 
+  followBody(dt)
   controls.update()
   renderer.render(scene, camera)
 })

@@ -120,6 +120,11 @@ Naming controls behavior (client-side, by prefix):
   (`talk_angry*` pool used on annoyed emotion)
 - `dance_*` — a looping dance + its music track, played on `gesture: 'dance'`
   (see "Dance for me" below); never joins the idle rotation
+- `walk_forward` — a walk-in-place cycle the wander layer drives across the
+  floor (`viewer.wander` tunables: `speed` m/s matched to the stride, `radius`,
+  `minWait`/`maxWait`; `viewer.walk()` sends her off now). Vanilla
+  `female/mt_walkforward.hkx`; the decoder handles Havok's 40- and 48-bit
+  quaternion formats, so mod re-exports (48-bit) work too
 - anything else — joins the random idle rotation (loopable clips only;
   female variants live under `animations/female/` in the BSA)
 

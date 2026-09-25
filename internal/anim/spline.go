@@ -157,6 +157,28 @@ func readQuat40(c *binread.Cursor) [4]float64 {
 	if v>>38&1 != 0 {
 		sign = -1
 	}
+	return assembleQuat(x, y, z, dropped, sign)
+}
+
+// readQuat48 decodes Havok's 48-bit quaternion: three 15-bit components in
+// three little-endian words. The top bit of the first two words indexes the
+// dropped component; the top bit of the third is its sign.
+func readQuat48(c *binread.Cursor) [4]float64 {
+	words := [3]uint64{uint64(c.U16()), uint64(c.U16()), uint64(c.U16())}
+	const mask = (1 << 14) - 1
+	const fractal = 0.000043161
+	x := (float64(words[0]&0x7fff) - mask) * fractal
+	y := (float64(words[1]&0x7fff) - mask) * fractal
+	z := (float64(words[2]&0x7fff) - mask) * fractal
+	dropped := (words[0] >> 15) | (words[1]>>15)<<1
+	sign := 1.0
+	if words[2]>>15 != 0 {
+		sign = -1
+	}
+	return assembleQuat(x, y, z, dropped, sign)
+}
+
+func assembleQuat(x, y, z float64, dropped uint64, sign float64) [4]float64 {
 	w := math.Sqrt(max(0, 1-(x*x+y*y+z*z))) * sign
 	var out [4]float64
 	src := [3]float64{x, y, z}
@@ -176,6 +198,8 @@ func readQuat(quantization int, c *binread.Cursor) [4]float64 {
 	switch quantization {
 	case 3:
 		return readQuat40(c)
+	case 4:
+		return readQuat48(c)
 	case 7:
 		values := c.F32s(4)
 		if c.Failed() {

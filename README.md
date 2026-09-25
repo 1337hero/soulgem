@@ -133,7 +133,9 @@ Rhubarb visemes drive the mouth per sentence; vanilla dialogue animations
 (`talk_*` clips) give her body language while speaking; one-shot gestures
 (wave/salute/laugh/applaud/point) fire when the model picks them; the **dance
 for me** button (or just asking her) sets her dancing to a track,
-ducked under her voice; 10 idle stances rotate between turns; she keeps eye contact with the camera
+ducked under her voice; 10 idle stances rotate between turns, and every
+minute or so she walks to a new spot and turns back to you (`viewer.wander`
+tunables); she keeps eye contact with the camera
 (`viewer.gaze` tunables). Scenes: `viewer.setScene('/pano.jpg', {height,
 radius})` places her in an equirect panorama with a real floor (CC0 panos
 from Poly Haven work great at 4K). See AGENTS.md for adding any of these.

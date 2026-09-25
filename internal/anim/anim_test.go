@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"soulgem/internal/binread"
 )
 
 // blockBuilder writes a spline block the way Havok lays one out. The real ones
@@ -345,4 +347,50 @@ func splitBinary(t *testing.T, data []byte) (BinaryHeader, []float32) {
 		payload = append(payload, math.Float32frombits(binary.LittleEndian.Uint32(data[offset:])))
 	}
 	return header, payload
+}
+
+// TestReadQuat48RoundTrip encodes quaternions the way Havok's THREECOMP48
+// does (three 15-bit components, dropped-index bits atop the first two words,
+// sign atop the third) and expects the decoder to recover them.
+func TestReadQuat48RoundTrip(t *testing.T) {
+	cases := [][4]float64{
+		{0, 0, 0, 1},
+		{0.5, 0.5, 0.5, 0.5},
+		{0.1, -0.2, 0.3, -0.927},
+		{-0.9, 0.1, 0.2, 0.383},
+	}
+	for _, want := range cases {
+		norm := math.Sqrt(want[0]*want[0] + want[1]*want[1] + want[2]*want[2] + want[3]*want[3])
+		for i := range want {
+			want[i] /= norm
+		}
+		dropped, largest := 0, 0.0
+		for i, v := range want {
+			if math.Abs(v) > largest {
+				dropped, largest = i, math.Abs(v)
+			}
+		}
+		sign := want[dropped] < 0
+		var kept []float64
+		for i, v := range want {
+			if i != dropped {
+				kept = append(kept, v)
+			}
+		}
+		var raw []byte
+		for i, v := range kept {
+			word := uint16(math.Round(v/0.000043161 + (1<<14 - 1)))
+			switch {
+			case i == 0 && dropped&1 != 0, i == 1 && dropped&2 != 0, i == 2 && sign:
+				word |= 1 << 15
+			}
+			raw = append(raw, byte(word), byte(word>>8))
+		}
+		got := readQuat48(binread.New("quat", raw))
+		for i := range 4 {
+			if math.Abs(got[i]-want[i]) > 1e-3 {
+				t.Fatalf("readQuat48(%v) = %v", want, got)
+			}
+		}
+	}
 }
